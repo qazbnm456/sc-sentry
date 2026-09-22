@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+
+# The real credentials. `.env.example` is the committed one.
+.env
+
+# `contract-assay fetch --source-root checkout` puts the pinned sources here.
+# Generated, verified against a digest, and reproducible from the corpus -- so
+# it is fetched, not committed.
+/checkout/
+
+# Run records and their logs. A figure belongs in the README with the command
+# that produced it; the 600KB of JSONL behind it does not belong in git.
+/results/

@@ -1,0 +1,366 @@
+"""The loop: one unit, the classes that have candidates, a planner per class.
+
+What this adds to the naive version, and each one is a measured cost:
+
+- **A class with no candidate sites costs nothing.** `plan()` returns `None`
+  when `evidence()` found nothing of the class in the unit, so a planner is
+  never asked to audit a file that holds no sites of what it is looking for --
+  which is both cheaper and the only way to avoid an invented finding.
+- **The planner holds tools.** The first attempt gave it a prose instruction and
+  a string; it spun for 171 seconds and produced nothing. Tools are what turn a
+  planner from a reader into a planner.
+- **Findings are ordered by the model's own confidence**, because the cap keeps
+  the first three and nothing re-ranks for a submission.
+
+It records `ModelUse` per run, from the tracker, so the benchmark can say what
+produced each figure. A failed call is `invalid` with the cause printed: a run
+that says only `transport_failure` leaves the cause nowhere, and the first thing
+anybody does with one is go looking for it.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import time
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from contract_assay.detectors.base import AnalysisContext, Detector, SubmissionLimits
+from contract_assay.detectors.loading import SubmissionFault, call_evidence, call_plan
+from contract_assay.detectors.runner import run_detector
+from contract_assay.models import (
+    DetectorRun,
+    EvidenceTier,
+    Finding,
+    InvalidReason,
+    Locator,
+    ModelRole,
+    ModelUse,
+    Outcome,
+)
+
+from sc_sentry.detectors import SENTRY_DETECTORS
+from sc_sentry.sites import tools_for
+from sc_sentry.slices import Unit, slice_of
+from sc_sentry.task import Proposals, audit_task
+
+
+@dataclass(frozen=True, slots=True)
+class Answer:
+    findings: tuple[Finding, ...]
+    tokens: int
+    seconds: float
+    failed: str | None = None
+
+
+_CONFIGURED = False
+
+
+def configure_once(
+    *, max_tokens: int, max_calls: int, max_iterations: int, cache: bool = False
+) -> None:
+    """Models from the environment here, because this runner IS the round.
+
+    The arena's adapter refuses to read `RLM_MAIN_MODEL` -- there a round file
+    announces the model and two sources of truth would mean the environment
+    silently winning. Here there is no round to disagree with, so `from_env` is
+    the honest path and the models are whatever the environment is pointed at.
+    """
+    global _CONFIGURED
+    if _CONFIGURED:
+        return
+    from dataclasses import replace
+
+    import dspy
+    from rlm_harness import RLMConfig, configure
+
+    # Off for a measurement, and the default, because dspy caches on disk and a
+    # cached answer comes back in two seconds having spent zero tokens. A sweep
+    # that re-ran the same (unit, class) pair would then report a cost of
+    # nothing and record `ModelUse(tokens=0)` -- a figure that is not wrong so
+    # much as about a different run.
+    #
+    # `--cache` is for iterating on everything downstream of the model: verdicts,
+    # scoring, the report. There the cached answer is exactly what is wanted,
+    # and the cost column is known to be meaningless.
+    dspy.configure_cache(enable_disk_cache=cache, enable_memory_cache=cache)
+
+    cfg = replace(
+        RLMConfig.from_env(),
+        max_tokens=max_tokens,
+        max_llm_calls=max_calls,
+        max_iterations=max_iterations,
+        # Measured: 4 of 64 calls died as "Failed to produce a valid 'findings'
+        # after 1 attempts", with the adapter unable to parse the reply. That is
+        # the reasoning-model truncation shape -- the chain-of-thought and the
+        # structured answer have to fit one `max_tokens` together, and a turn
+        # that overruns is cut off mid-JSON. It presents as a model that cannot
+        # follow a schema, which is a different fix from the real one.
+        max_retries=3,
+    )
+    configure(cfg)
+    # Pinned after `configure`, because `RLMConfig` has no temperature field and
+    # the LM does not exist before this point. Unpinned means the SERVER's
+    # default -- typically 1.0 -- so two runs of one harness over one unit are
+    # two samples of an unrecorded distribution, and comparing them measures the
+    # sampler rather than the change being tested.
+    lm = getattr(dspy.settings, "lm", None)
+    if lm is not None and hasattr(lm, "kwargs"):
+        lm.kwargs["temperature"] = float(os.environ.get("SC_SENTRY_TEMPERATURE", "0.0"))
+        lm.cache = cache
+    _CONFIGURED = True
+
+
+def ask(detector: Detector, ctx: AnalysisContext, brief: str) -> Answer:
+    """One planner run for one class on one unit. Never raises."""
+    import dspy
+
+    task = audit_task(ctx.source, tools_for(ctx.source))
+    started = time.monotonic()
+    tokens = 0
+    try:
+        with dspy.track_usage() as tracker:
+            result = task.run(brief=brief, source=ctx.source)
+    except Exception as failure:
+        return Answer(
+            findings=(),
+            tokens=0,
+            seconds=time.monotonic() - started,
+            failed=f"{type(failure).__name__}: {failure}",
+        )
+    for calls in getattr(tracker, "usage_data", {}).values():
+        for call in calls:
+            tokens += int(call.get("total_tokens") or 0) or (
+                int(call.get("prompt_tokens") or 0) + int(call.get("completion_tokens") or 0)
+            )
+
+    proposals = (
+        result.findings if isinstance(result, Proposals) else getattr(result, "findings", [])
+    )
+    # Ordered by the model's own confidence: the cap keeps the first three and
+    # nothing re-ranks for a submission.
+    ordered = sorted(proposals, key=lambda p: -getattr(p, "confidence", 3))
+    return Answer(
+        findings=tuple(
+            Finding(
+                detector_id=detector.detector_id,
+                locator=Locator(
+                    file=ctx.path,
+                    contract=p.contract,
+                    function=p.function,
+                    start_line=p.start_line,
+                    end_line=max(p.end_line, p.start_line),
+                ),
+                quote=p.quote,
+                reasoning=p.reasoning,
+            )
+            for p in ordered
+        ),
+        tokens=tokens,
+        seconds=time.monotonic() - started,
+    )
+
+
+def run_unit(
+    unit: Unit,
+    detectors: Sequence[Detector],
+    *,
+    wall_seconds: int,
+    max_calls: int,
+    max_tokens: int,
+    predictions_per_unit: int,
+) -> tuple[list[DetectorRun], dict[str, Any]]:
+    """Every class with candidates in this unit. Returns the runs and what they cost."""
+    runs: list[DetectorRun] = []
+    cost = {"calls": 0, "tokens": 0, "seconds": 0.0, "skipped": 0}
+    for detector in detectors:
+        ctx = AnalysisContext(
+            source_id=unit.source_id,
+            path=unit.path,
+            source=unit.source,
+            tier=EvidenceTier.SYNTACTIC,
+            level=detector.level,
+            limits=SubmissionLimits.for_level(
+                detector.level,
+                wall_seconds=wall_seconds,
+                max_model_calls=max_calls,
+                max_tokens=max_tokens,
+            ),
+        )
+        try:
+            evidence = call_evidence(detector, ctx)
+            spec = call_plan(detector, ctx, evidence)
+        except SubmissionFault as fault:
+            runs.append(
+                DetectorRun(
+                    detector_id=detector.detector_id,
+                    class_id=detector.class_id,
+                    source_id=unit.source_id,
+                    outcome=Outcome.INVALID,
+                    invalid_reason=fault.invalid_reason,
+                    evidence_tier=ctx.tier,
+                )
+            )
+            continue
+
+        if spec is None:
+            # No candidate sites of this class. A deterministic `clean`, and the
+            # cheapest possible answer: a planner asked to audit a file with no
+            # sites of what it seeks will invent one.
+            cost["skipped"] += 1
+            runs.append(
+                run_detector(detector, ctx, model_findings=(), produced_without_a_model=False)
+            )
+            continue
+
+        answer = ask(detector, ctx, spec.instruction)
+        cost["calls"] += 1
+        cost["tokens"] += answer.tokens
+        cost["seconds"] += answer.seconds
+        if answer.failed is not None:
+            print(f"    {detector.class_id.value}: {answer.failed}", file=sys.stderr, flush=True)
+            runs.append(
+                DetectorRun(
+                    detector_id=detector.detector_id,
+                    class_id=detector.class_id,
+                    source_id=unit.source_id,
+                    outcome=Outcome.INVALID,
+                    invalid_reason=InvalidReason.TRANSPORT_FAILURE,
+                    evidence_tier=ctx.tier,
+                    models=[
+                        ModelUse(
+                            model_id=os.environ["RLM_MAIN_MODEL"],
+                            role=ModelRole.MAIN,
+                            calls=1,
+                            tokens=answer.tokens,
+                        )
+                    ],
+                )
+            )
+            continue
+
+        print(
+            f"    {detector.class_id.value:<24} {answer.seconds:>5.0f}s {answer.tokens:>6} tok"
+            f"  {len(answer.findings)} proposal(s)",
+            file=sys.stderr,
+            flush=True,
+        )
+        runs.append(
+            run_detector(
+                detector,
+                ctx,
+                model_findings=answer.findings[:predictions_per_unit],
+                models=[
+                    ModelUse(
+                        model_id=os.environ["RLM_MAIN_MODEL"],
+                        role=ModelRole.MAIN,
+                        calls=1,
+                        tokens=answer.tokens,
+                    )
+                ],
+            )
+        )
+    return runs, cost
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--units", type=int, default=3, help="0 for every readable unit.")
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--corpus",
+        type=Path,
+        required=True,
+        help="contract-assay's `corpus/records` directory. Required, and not "
+        "defaulted to a sibling checkout: a default would make the figures "
+        "depend on where the clone happens to sit.",
+    )
+    parser.add_argument(
+        "--source-root",
+        type=Path,
+        required=True,
+        help="Where `contract-assay fetch --source-root` put the pinned sources.",
+    )
+    parser.add_argument("--max-tokens", type=int, default=32_768)
+    parser.add_argument("--max-calls", type=int, default=4)
+    parser.add_argument("--max-iterations", type=int, default=6)
+    parser.add_argument("--predictions-per-unit", type=int, default=3)
+    parser.add_argument("--only", default=None, help="One class value, for iterating fast.")
+    parser.add_argument(
+        "--cache",
+        action="store_true",
+        help="Serve repeated calls from dspy's disk cache. Fast, and the cost "
+        "column then measures nothing -- for iterating downstream of the model.",
+    )
+    args = parser.parse_args(argv)
+
+    if not os.environ.get("RLM_MAIN_MODEL"):
+        # Checked here rather than at the first call, because the KeyError that
+        # would otherwise land is raised in `run_unit` after a unit has already
+        # been audited -- a crash that costs a sweep and names the wrong thing.
+        print(
+            "RLM_MAIN_MODEL is not set. Copy .env.example to .env and fill it in,"
+            " or export the four RLM_* variables.",
+            file=sys.stderr,
+        )
+        return 2
+
+    configure_once(
+        max_tokens=args.max_tokens,
+        max_calls=args.max_calls,
+        max_iterations=args.max_iterations,
+        cache=args.cache,
+    )
+    if args.cache:
+        print("CACHE ON: the cost figures below measure nothing", file=sys.stderr, flush=True)
+    detectors = [cls() for cls in SENTRY_DETECTORS]
+    if args.only:
+        detectors = [d for d in detectors if d.class_id.value == args.only]
+        if not detectors:
+            print(f"--only {args.only!r} names no detector here", file=sys.stderr)
+            return 2
+    units = slice_of(args.corpus, args.source_root, args.units)
+    if not units:
+        print(
+            f"no readable unit under {args.source_root} -- run `contract-assay fetch` first",
+            file=sys.stderr,
+        )
+        return 2
+    print(f"{len(units)} unit(s), {len(detectors)} detector(s)", file=sys.stderr, flush=True)
+
+    total = {"calls": 0, "tokens": 0, "seconds": 0.0, "skipped": 0}
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    with args.out.open("w", encoding="utf-8") as handle:
+        for index, u in enumerate(units, start=1):
+            print(f"  [{index}/{len(units)}] {u.path}", file=sys.stderr, flush=True)
+            runs, cost = run_unit(
+                u,
+                detectors,
+                wall_seconds=10_000,
+                max_calls=args.max_calls,
+                max_tokens=args.max_tokens,
+                predictions_per_unit=args.predictions_per_unit,
+            )
+            for run in runs:
+                handle.write(json.dumps(run.model_dump(mode="json")) + "\n")
+            handle.flush()
+            for k in total:
+                total[k] += cost[k]
+    print(
+        f"\ncalls={total['calls']} skipped={total['skipped']} "
+        f"tokens={total['tokens']} seconds={total['seconds']:.0f}",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(f"wrote {args.out}", file=sys.stderr, flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

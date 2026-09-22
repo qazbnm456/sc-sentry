@@ -1,0 +1,79 @@
+[project]
+name = "sc-sentry"
+version = "0.1.0"
+description = "Smart Contract Sentry: an RLM agent that audits one Solidity unit for one vulnerability class and cites the exact lines it found it at."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Boik Su", email = "qazbnm456@gmail.com" }]
+keywords = ["smart-contract", "security", "solidity", "audit", "llm", "agent", "dspy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+
+dependencies = [
+    # The benchmark. A hard dependency, not an optional one: the detector
+    # interface, the run record and the scorer all live there, and this package
+    # does not import without it. It is not on PyPI yet, so install it from a
+    # clone first (see the README) -- pip treats an already-installed
+    # requirement as satisfied and will not go looking.
+    "contract-assay>=0.1.0",
+    "rlm-harness>=1.11.2",
+    "dspy>=3.3.1",
+    "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.6", "mypy>=1.11"]
+
+[project.urls]
+Homepage = "https://github.com/qazbnm456/sc-sentry"
+Repository = "https://github.com/qazbnm456/sc-sentry"
+Issues = "https://github.com/qazbnm456/sc-sentry/issues"
+
+[project.scripts]
+sc-sentry = "sc_sentry.run:main"
+sc-sentry-score = "sc_sentry.score:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sc_sentry"]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort — import order is enforced, not conventional
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "SIM",      # simplify
+    "PTH",      # use pathlib over os.path
+    "RUF",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+mypy_path = "src"
+packages = ["sc_sentry"]
+
+[[tool.mypy.overrides]]
+# Neither ships type information, and `dspy`'s settings object is dynamic by
+# design -- `dspy.settings.lm` does not exist before `configure` runs.
+module = ["dspy.*", "rlm_harness.*"]
+ignore_missing_imports = true
