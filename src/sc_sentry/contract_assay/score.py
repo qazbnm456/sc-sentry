@@ -23,7 +23,7 @@ from contract_assay.report.scoring import MatchStrength, score
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(prog="sc-sentry-contract-assay score")
     parser.add_argument("runs", type=Path)
     parser.add_argument(
         "--corpus",

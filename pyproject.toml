@@ -26,10 +26,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Adapts the harness to the contract-assay benchmark (`sc_sentry.assay`). Not
+# Adapts the harness to the contract-assay benchmark (`sc_sentry.contract_assay`). Not
 # needed to audit anything. contract-assay is not on PyPI yet, so install it
 # from a clone first (see the README); pip then treats this as satisfied.
-assay = ["contract-assay>=0.1.1"]
+contract-assay = ["contract-assay>=0.1.1"]
 # ruff pinned to a minor: its formatter's output changes between minors, and an
 # unpinned `ruff>=0.6` left two files formatted differently on two machines.
 dev = ["ruff>=0.16.7,<0.17", "mypy>=1.11", "pytest>=8"]
@@ -41,10 +41,9 @@ Issues = "https://github.com/qazbnm456/sc-sentry/issues"
 
 [project.scripts]
 sc-sentry = "sc_sentry.cli:main"
-# The contract-assay adapter's two commands. Installed always, and they say
-# what to install when the `assay` extra is missing.
-sc-sentry-assay = "sc_sentry.assay.run:main"
-sc-sentry-score = "sc_sentry.assay.score:main"
+# The contract-assay adapter: `run` sweeps a corpus, `score` scores the result.
+# Installed always, and it says what to install when the extra is missing.
+sc-sentry-contract-assay = "sc_sentry.contract_assay.cli:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -45,10 +45,10 @@ from contract_assay.models import (
     Outcome,
 )
 
-from sc_sentry.assay.detectors import SENTRY_DETECTORS
-from sc_sentry.assay.slices import Unit, slice_of
 from sc_sentry.audit import ask as ask_model
 from sc_sentry.audit import configure_once
+from sc_sentry.contract_assay.detectors import SENTRY_DETECTORS
+from sc_sentry.contract_assay.slices import Unit, slice_of
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,7 +198,7 @@ def run_unit(
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(prog="sc-sentry-contract-assay run")
     parser.add_argument("--units", type=int, default=3, help="0 for every readable unit.")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument(

@@ -15,11 +15,11 @@ from contract_assay.detectors.base import AnalysisContext, SubmissionLimits
 from contract_assay.models import EvidenceTier
 
 from sc_sentry import audit as audit_module
-from sc_sentry.assay import run
-from sc_sentry.assay.detectors import SENTRY_DETECTORS, Slippage
 from sc_sentry.briefs import BRIEFS
 from sc_sentry.checks import CHECKS
 from sc_sentry.classes import VulnClass
+from sc_sentry.contract_assay import run
+from sc_sentry.contract_assay.detectors import SENTRY_DETECTORS, Slippage
 from sc_sentry.task import Proposal, Proposals
 
 from .test_core import VAULT
@@ -99,3 +99,19 @@ class TestTheRunsFile:
         answer = run.ask(detector, a_context(detector), BRIEFS[VulnClass.SLIPPAGE])
         assert answer.failed is None
         assert [f.score for f in answer.findings] == [5.0, 3.0, 2.0]
+
+
+class TestTheCommand:
+    def test_run_and_score_are_its_subcommands(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from sc_sentry.contract_assay.cli import main
+
+        assert main([]) == 2
+        assert main(["--help"]) == 0
+        assert "run" in capsys.readouterr().out
+        with pytest.raises(SystemExit):
+            main(["run", "--help"])
+        assert "sc-sentry-contract-assay run" in capsys.readouterr().out
+        with pytest.raises(SystemExit):
+            main(["score", "--help"])
+        assert "sc-sentry-contract-assay score" in capsys.readouterr().out
+        assert main(["sweep"]) == 2

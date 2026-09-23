@@ -23,7 +23,7 @@ jobs:
     # that it needs none -- the core tests run, and the contract-assay
     # adapter's tests skip themselves because the extra is absent.
     #
-    # The adapter (`sc_sentry.assay`) is type-checked and tested locally, with
+    # The adapter (`sc_sentry.contract_assay`) is type-checked and tested locally, with
     # contract-assay installed from a clone: that repository is private, and a
     # job here would need a credential to reach it.
     runs-on: ubuntu-latest
@@ -37,5 +37,5 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
-      - run: mypy src --exclude 'sc_sentry/assay'
+      - run: mypy src --exclude 'sc_sentry/contract_assay'
       - run: pytest

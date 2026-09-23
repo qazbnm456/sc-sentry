@@ -19,7 +19,7 @@ The parts, and the split is the design:
   seeks will invent one.
 - `cli.py` -- `sc-sentry audit`.
 
-`sc_sentry.assay` adapts all of this to the contract-assay benchmark, as an
+`sc_sentry.contract_assay` adapts all of this to the contract-assay benchmark, as an
 optional extra. The harness does not need it.
 """
 

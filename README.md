@@ -84,7 +84,7 @@ figure came from; a figure without its run is not reproducible.
 
 ## Scoring it (optional): the contract-assay adapter
 
-`sc_sentry.assay` adapts the harness to the [contract-assay][ca] benchmark:
+`sc_sentry.contract_assay` adapts the harness to the [contract-assay][ca] benchmark:
 the same checks exposed as its `Detector`s, a sweep over its corpus that writes
 the runs file it scores, and a scoring front-end. The harness never imports it.
 
@@ -93,12 +93,12 @@ the runs file it scores, and a scoring front-end. The harness never imports it.
 ```bash
 # contract-assay is not on PyPI yet: install it from a clone first.
 git clone https://github.com/qazbnm456/contract-assay
-pip install -e ./contract-assay && pip install -e "./sc-sentry[assay]"
+pip install -e ./contract-assay && pip install -e "./sc-sentry[contract-assay]"
 
 contract-assay fetch contract-assay/corpus/records --source-root checkout
-sc-sentry-assay --units 12 --out results/run.jsonl \
+sc-sentry-contract-assay run --units 12 --out results/run.jsonl \
     --corpus contract-assay/corpus/records --source-root checkout
-sc-sentry-score results/run.jsonl \
+sc-sentry-contract-assay score results/run.jsonl \
     --corpus contract-assay/corpus/records --source-root checkout
 ```
 
