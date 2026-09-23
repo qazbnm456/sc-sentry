@@ -1,7 +1,7 @@
 [project]
 name = "sc-sentry"
-version = "0.1.0"
-description = "Smart Contract Sentry: an RLM agent that audits one Solidity unit for one vulnerability class and cites the exact lines it found it at."
+version = "0.2.0"
+description = "Smart Contract Sentry: an RLM harness that hunts vulnerabilities in Solidity and cites the exact lines."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -18,18 +18,18 @@ classifiers = [
 ]
 
 dependencies = [
-    # The benchmark. A hard dependency, not an optional one: the detector
-    # interface, the run record and the scorer all live there, and this package
-    # does not import without it. It is not on PyPI yet, so install it from a
-    # clone first (see the README) -- pip treats an already-installed
-    # requirement as satisfied and will not go looking.
-    "contract-assay>=0.1.1",
     "rlm-harness>=1.11.2",
     "dspy>=3.3.1",
     "pydantic>=2.7",
+    "tree-sitter>=0.26,<0.27",
+    "tree-sitter-solidity>=1.2.13,<2",
 ]
 
 [project.optional-dependencies]
+# Adapts the harness to the contract-assay benchmark (`sc_sentry.assay`). Not
+# needed to audit anything. contract-assay is not on PyPI yet, so install it
+# from a clone first (see the README); pip then treats this as satisfied.
+assay = ["contract-assay>=0.1.1"]
 # ruff pinned to a minor: its formatter's output changes between minors, and an
 # unpinned `ruff>=0.6` left two files formatted differently on two machines.
 dev = ["ruff>=0.16.7,<0.17", "mypy>=1.11", "pytest>=8"]
@@ -40,8 +40,11 @@ Repository = "https://github.com/qazbnm456/sc-sentry"
 Issues = "https://github.com/qazbnm456/sc-sentry/issues"
 
 [project.scripts]
-sc-sentry = "sc_sentry.run:main"
-sc-sentry-score = "sc_sentry.score:main"
+sc-sentry = "sc_sentry.cli:main"
+# The contract-assay adapter's two commands. Installed always, and they say
+# what to install when the `assay` extra is missing.
+sc-sentry-assay = "sc_sentry.assay.run:main"
+sc-sentry-score = "sc_sentry.assay.score:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -77,7 +80,7 @@ packages = ["sc_sentry"]
 [[tool.mypy.overrides]]
 # Neither ships type information, and `dspy`'s settings object is dynamic by
 # design -- `dspy.settings.lm` does not exist before `configure` runs.
-module = ["dspy.*", "rlm_harness.*"]
+module = ["dspy.*", "rlm_harness.*", "tree_sitter.*", "tree_sitter_solidity.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

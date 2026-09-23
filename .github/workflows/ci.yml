@@ -6,14 +6,8 @@ on:
 
 jobs:
   lint:
-    # Needs nothing but the source. ruff is pinned to the same minor as
-    # pyproject's dev extra: its formatter's output changes between minors.
-    #
-    # There is no test job yet. The tests need contract-assay, which is not on
-    # PyPI and whose repository is private, so a job here would need a
-    # credential to reach it. Until one is set up, run them locally after
-    # installing contract-assay from a clone (see the README):
-    #   pip install -e ".[dev]" && mypy src && pytest
+    # ruff pinned to the same minor as pyproject's dev extra: its formatter's
+    # output changes between minors.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,3 +17,25 @@ jobs:
       - run: pip install "ruff>=0.16.7,<0.17"
       - run: ruff check src tests
       - run: ruff format --check src tests
+
+  test:
+    # The harness as a user installs it: no benchmark. This is also the proof
+    # that it needs none -- the core tests run, and the contract-assay
+    # adapter's tests skip themselves because the extra is absent.
+    #
+    # The adapter (`sc_sentry.assay`) is type-checked and tested locally, with
+    # contract-assay installed from a clone: that repository is private, and a
+    # job here would need a credential to reach it.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - run: mypy src --exclude 'sc_sentry/assay'
+      - run: pytest

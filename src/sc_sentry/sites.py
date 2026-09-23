@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from contract_assay.evidence.syntax import Site, Syntax
+from sc_sentry.solidity import Site, Syntax
 
 
 def _where(site: Site) -> dict[str, Any]:

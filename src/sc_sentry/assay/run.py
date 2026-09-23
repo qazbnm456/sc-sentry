@@ -1,4 +1,7 @@
-"""The loop: one unit, the classes that have candidates, a planner per class.
+"""A sweep over a contract-assay corpus, writing the runs file the benchmark scores.
+
+The harness is `sc_sentry.audit`; this is the same loop over a benchmark's units,
+recorded in the benchmark's `DetectorRun` shape. What the loop does:
 
 What this adds to the naive version, and each one is a measured cost:
 
@@ -23,7 +26,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,107 +45,31 @@ from contract_assay.models import (
     Outcome,
 )
 
-from sc_sentry.detectors import SENTRY_DETECTORS
-from sc_sentry.sites import tools_for
-from sc_sentry.slices import Unit, slice_of
-from sc_sentry.task import Proposals, audit_task
+from sc_sentry.assay.detectors import SENTRY_DETECTORS
+from sc_sentry.assay.slices import Unit, slice_of
+from sc_sentry.audit import ask as ask_model
+from sc_sentry.audit import configure_once
 
 
 @dataclass(frozen=True, slots=True)
 class Answer:
+    """One planner run, restated as the benchmark's findings."""
+
     findings: tuple[Finding, ...]
     tokens: int
     seconds: float
     failed: str | None = None
 
 
-_CONFIGURED = False
-
-
-def configure_once(
-    *, max_tokens: int, max_calls: int, max_iterations: int, cache: bool = False
-) -> None:
-    """Models from the environment here, because this runner IS the round.
-
-    The arena's adapter refuses to read `RLM_MAIN_MODEL` -- there a round file
-    announces the model and two sources of truth would mean the environment
-    silently winning. Here there is no round to disagree with, so `from_env` is
-    the honest path and the models are whatever the environment is pointed at.
-    """
-    global _CONFIGURED
-    if _CONFIGURED:
-        return
-    from dataclasses import replace
-
-    import dspy
-    from rlm_harness import RLMConfig, configure
-
-    # Off for a measurement, and the default, because dspy caches on disk and a
-    # cached answer comes back in two seconds having spent zero tokens. A sweep
-    # that re-ran the same (unit, class) pair would then report a cost of
-    # nothing and record `ModelUse(tokens=0)` -- a figure that is not wrong so
-    # much as about a different run.
-    #
-    # `--cache` is for iterating on everything downstream of the model: verdicts,
-    # scoring, the report. There the cached answer is exactly what is wanted,
-    # and the cost column is known to be meaningless.
-    dspy.configure_cache(enable_disk_cache=cache, enable_memory_cache=cache)
-
-    cfg = replace(
-        RLMConfig.from_env(),
-        max_tokens=max_tokens,
-        max_llm_calls=max_calls,
-        max_iterations=max_iterations,
-        # Measured: 4 of 64 calls died as "Failed to produce a valid 'findings'
-        # after 1 attempts", with the adapter unable to parse the reply. That is
-        # the reasoning-model truncation shape -- the chain-of-thought and the
-        # structured answer have to fit one `max_tokens` together, and a turn
-        # that overruns is cut off mid-JSON. It presents as a model that cannot
-        # follow a schema, which is a different fix from the real one.
-        max_retries=3,
-    )
-    configure(cfg)
-    # Pinned after `configure`, because `RLMConfig` has no temperature field and
-    # the LM does not exist before this point. Unpinned means the SERVER's
-    # default -- typically 1.0 -- so two runs of one harness over one unit are
-    # two samples of an unrecorded distribution, and comparing them measures the
-    # sampler rather than the change being tested.
-    lm = getattr(dspy.settings, "lm", None)
-    if lm is not None and hasattr(lm, "kwargs"):
-        lm.kwargs["temperature"] = float(os.environ.get("SC_SENTRY_TEMPERATURE", "0.0"))
-        lm.cache = cache
-    _CONFIGURED = True
-
-
 def ask(detector: Detector, ctx: AnalysisContext, brief: str) -> Answer:
-    """One planner run for one class on one unit. Never raises."""
-    import dspy
+    """The harness's own planner run (`sc_sentry.audit.ask`), as benchmark findings.
 
-    task = audit_task(ctx.source, tools_for(ctx.source))
-    started = time.monotonic()
-    tokens = 0
-    try:
-        with dspy.track_usage() as tracker:
-            result = task.run(brief=brief, source=ctx.source)
-    except Exception as failure:
-        return Answer(
-            findings=(),
-            tokens=0,
-            seconds=time.monotonic() - started,
-            failed=f"{type(failure).__name__}: {failure}",
-        )
-    for calls in getattr(tracker, "usage_data", {}).values():
-        for call in calls:
-            tokens += int(call.get("total_tokens") or 0) or (
-                int(call.get("prompt_tokens") or 0) + int(call.get("completion_tokens") or 0)
-            )
-
-    proposals = (
-        result.findings if isinstance(result, Proposals) else getattr(result, "findings", [])
-    )
-    # Ordered by the model's own confidence: the cap keeps the first three and
-    # nothing re-ranks for a submission.
-    ordered = sorted(proposals, key=lambda p: -getattr(p, "confidence", 3))
+    The model's confidence is carried as `Finding.score`, in the order it
+    sorts: a round ranked on bpref needs a score on every finding of a class,
+    and without it this harness was unrankable on every such round while
+    sorting by exactly this number.
+    """
+    answer = ask_model(ctx.source, brief)
     return Answer(
         findings=tuple(
             Finding(
@@ -157,16 +83,13 @@ def ask(detector: Detector, ctx: AnalysisContext, brief: str) -> Answer:
                 ),
                 quote=p.quote,
                 reasoning=p.reasoning,
-                # The same confidence, carried as the declared ordering. A round
-                # ranked on bpref needs a score on every finding of a class, and
-                # without it this harness was unrankable on every such round
-                # while sorting by exactly this number.
-                score=float(getattr(p, "confidence", 3)),
+                score=float(p.confidence),
             )
-            for p in ordered
+            for p in answer.proposals
         ),
-        tokens=tokens,
-        seconds=time.monotonic() - started,
+        tokens=answer.tokens,
+        seconds=answer.seconds,
+        failed=answer.failed,
     )
 
 

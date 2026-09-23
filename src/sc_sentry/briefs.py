@@ -9,7 +9,7 @@ that by trying all nine.
 
 from __future__ import annotations
 
-from contract_assay.models import VulnerabilityClass as V
+from sc_sentry.classes import VulnClass as V
 
 BRIEFS: dict[V, str] = {
     V.ACCESS_CONTROL: (
