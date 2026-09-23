@@ -157,6 +157,11 @@ def ask(detector: Detector, ctx: AnalysisContext, brief: str) -> Answer:
                 ),
                 quote=p.quote,
                 reasoning=p.reasoning,
+                # The same confidence, carried as the declared ordering. A round
+                # ranked on bpref needs a score on every finding of a class, and
+                # without it this harness was unrankable on every such round
+                # while sorting by exactly this number.
+                score=float(getattr(p, "confidence", 3)),
             )
             for p in ordered
         ),

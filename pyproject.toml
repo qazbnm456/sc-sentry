@@ -23,7 +23,7 @@ dependencies = [
     # does not import without it. It is not on PyPI yet, so install it from a
     # clone first (see the README) -- pip treats an already-installed
     # requirement as satisfied and will not go looking.
-    "contract-assay>=0.1.0",
+    "contract-assay>=0.1.1",
     "rlm-harness>=1.11.2",
     "dspy>=3.3.1",
     "pydantic>=2.7",
