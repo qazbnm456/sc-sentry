@@ -167,3 +167,27 @@ class TestTheAsk:
         answer = audit_module.ask(VAULT, BRIEFS[VulnClass.SLIPPAGE])
         assert answer.failed is None
         assert [p.confidence for p in answer.proposals] == [5, 3, 2]
+
+
+class TestTheCommand:
+    def test_classes_may_be_comma_separated_and_repeated(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+    ) -> None:
+        from sc_sentry import cli
+
+        seen: list[Any] = []
+        monkeypatch.setenv("RLM_MAIN_MODEL", "m")
+        monkeypatch.setattr(audit_module, "configure_once", lambda **_: None)
+        monkeypatch.setattr(
+            audit_module,
+            "audit",
+            lambda source, path, classes: (
+                seen.append(classes) or audit_module.Report(file=path, model="m")
+            ),
+        )
+        target = tmp_path / "Vault.sol"
+        target.write_text(VAULT)
+        argv = ["audit", str(target), "--class", "slippage,reentrancy", "--class", "slippage"]
+        assert cli.main([*argv, "--out", str(tmp_path / "r.json")]) == 0
+        assert seen == [[VulnClass.SLIPPAGE, VulnClass.REENTRANCY]]
+        assert cli.main(["audit", str(target), "--class", "nonsense"]) == 2

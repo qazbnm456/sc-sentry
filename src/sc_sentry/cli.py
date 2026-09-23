@@ -27,8 +27,8 @@ def main(argv: list[str] | None = None) -> int:
         "--class",
         dest="classes",
         action="append",
-        choices=[c.value for c in VulnClass],
-        help="A class to hunt. Repeat for several; omitted, every class.",
+        help="A class to hunt, or several comma-separated; repeatable. Omitted, every "
+        "class. `sc-sentry classes` lists them.",
     )
     audit.add_argument("--format", choices=["json", "sarif"], default="json")
     audit.add_argument("--out", type=Path, help="Write here instead of stdout.")
@@ -73,7 +73,15 @@ def main(argv: list[str] | None = None) -> int:
         max_iterations=args.max_iterations,
         cache=args.cache,
     )
-    classes = [VulnClass(c) for c in args.classes] if args.classes else None
+    named = [part.strip() for given in args.classes or () for part in given.split(",")]
+    unknown = sorted({name for name in named if name not in {c.value for c in VulnClass}})
+    if unknown:
+        print(
+            f"unknown class(es): {', '.join(unknown)}. `sc-sentry classes` lists them.",
+            file=sys.stderr,
+        )
+        return 2
+    classes = [VulnClass(name) for name in dict.fromkeys(named) if name] or None
     reports = []
     for path in args.files:
         print(f"auditing {path}", file=sys.stderr, flush=True)
