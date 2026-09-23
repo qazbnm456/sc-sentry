@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    # Needs nothing but the source. ruff is pinned to the same minor as
+    # pyproject's dev extra: its formatter's output changes between minors.
+    #
+    # There is no test job yet. The tests need contract-assay, which is not on
+    # PyPI and whose repository is private, so a job here would need a
+    # credential to reach it. Until one is set up, run them locally after
+    # installing contract-assay from a clone (see the README):
+    #   pip install -e ".[dev]" && mypy src && pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "ruff>=0.16.7,<0.17"
+      - run: ruff check src tests
+      - run: ruff format --check src tests

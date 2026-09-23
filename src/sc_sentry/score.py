@@ -52,9 +52,9 @@ def main(argv: list[str] | None = None) -> int:
     report = score(
         runs,
         held,
-        lambda pin: (root / pin.path).read_text(encoding="utf-8")
-        if (root / pin.path).is_file()
-        else None,
+        lambda pin: (
+            (root / pin.path).read_text(encoding="utf-8") if (root / pin.path).is_file() else None
+        ),
         predictions_per_unit=args.predictions_per_unit,
     )
 

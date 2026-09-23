@@ -30,7 +30,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.6", "mypy>=1.11"]
+# ruff pinned to a minor: its formatter's output changes between minors, and an
+# unpinned `ruff>=0.6` left two files formatted differently on two machines.
+dev = ["ruff>=0.16.7,<0.17", "mypy>=1.11", "pytest>=8"]
 
 [project.urls]
 Homepage = "https://github.com/qazbnm456/sc-sentry"
@@ -50,7 +52,7 @@ packages = ["src/sc_sentry"]
 
 [tool.ruff]
 line-length = 100
-src = ["src"]
+src = ["src", "tests"]
 target-version = "py311"
 
 [tool.ruff.lint]
@@ -77,3 +79,7 @@ packages = ["sc_sentry"]
 # design -- `dspy.settings.lm` does not exist before `configure` runs.
 module = ["dspy.*", "rlm_harness.*"]
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"

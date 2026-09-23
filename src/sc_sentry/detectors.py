@@ -290,9 +290,7 @@ class ArithmeticRounding(_Base):
         out: list[EvidenceRef] = []
         for a in parsed.arithmetic:
             if a.divides_then_scales:
-                out.append(
-                    _ref("division_before_scaling", a.site, ctx, operator=a.operator or "")
-                )
+                out.append(_ref("division_before_scaling", a.site, ctx, operator=a.operator or ""))
             elif "/" in (a.operand_operators or ()) or a.operator == "/":
                 out.append(_ref("division", a.site, ctx, operator=a.operator or ""))
         return out
