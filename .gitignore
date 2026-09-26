@@ -16,3 +16,7 @@ build/
 # Run records and their logs. A figure belongs in the README with the command
 # that produced it; the 600KB of JSONL behind it does not belong in git.
 /results/
+
+# Any other fetched source tree, whatever it is named. Sources are fetched from
+# a corpus, never committed.
+/*-checkout/
