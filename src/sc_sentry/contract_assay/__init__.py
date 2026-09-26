@@ -14,7 +14,8 @@ from __future__ import annotations
 MISSING = (
     "sc-sentry-contract-assay adapts sc-sentry to the contract-assay benchmark and needs "
     'it installed: pip install "sc-sentry[contract-assay]". contract-assay is not on '
-    "PyPI yet, so install it from a clone first -- see the README."
+    "PyPI and its repository is private, so install it from a clone you have read "
+    "access to first -- see the README."
 )
 """Said by the command when the extra is absent. Not raised at import: the
 command has to be importable to say it, and a traceback in front of one

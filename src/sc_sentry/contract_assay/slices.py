@@ -2,7 +2,7 @@
 
 A sweep of the whole corpus is the honest measurement and costs real money, so
 most runs are a slice. The slice is the part worth getting right: the first N
-units of a corpus whose largest class holds 190 of 435 records is a measurement
+units of a corpus whose largest class holds 200 of 478 records is a measurement
 of that one class wearing the corpus's name.
 
 `slice_of` covers every class once before covering any class twice, and is

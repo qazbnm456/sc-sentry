@@ -26,6 +26,12 @@ pip install -e ./sc-sentry
 cp sc-sentry/.env.example .env && $EDITOR .env   # where the model lives
 ```
 
+Both commands read `.env` from the directory you run them in; a variable
+already exported wins over the file, so `RLM_MAIN_MODEL=x sc-sentry audit ...`
+overrides it for one run. `RLM_MAIN_MODEL`, `RLM_SUB_MODEL`, `RLM_BASE_URL`,
+`RLM_API_KEY` and `RLM_ADAPTER` say where the model is; `RLM_MAX_TOKENS` and
+`SC_SENTRY_TEMPERATURE` are optional (below).
+
 ## Use
 
 ```bash
@@ -35,6 +41,16 @@ sc-sentry audit Pool.sol --class reentrancy --class oracle_integrity \
     --format sarif --out pool.sarif
 ```
 
+| option | default | |
+|---|---|---|
+| `--class` | every class | one class, or several comma-separated; repeatable |
+| `--format` | `json` | or `sarif` |
+| `--out` | stdout | |
+| `--max-tokens` | `RLM_MAX_TOKENS`, else 32768 | per-call generation cap |
+| `--max-calls` | 4 | model calls per class |
+| `--max-iterations` | 6 | planner turns per class |
+| `--cache` | off | see below |
+
 A finding the class definition rejects -- say, a slippage citation in a
 function that makes no exchange call -- is **kept, marked**: `rejected` in JSON,
 a suppressed result with the reason in SARIF. Whoever reads the report decides
@@ -43,7 +59,9 @@ whether the screen was right, which they cannot do with what it silently took.
 ## How it works
 
 - **`skills/`** — what each class *is*, including the shapes that look like it
-  and are not, and how to cite. Eight classes plus `citing-source`. Prose,
+  and are not, and how to cite. Seven of the eight classes (`insecure_randomness`
+  has no skill yet, so its planner works from the class definition alone), plus
+  `citing-source`. Prose,
   editable by somebody who is not reading Python, injected at startup so the
   planner never spends a turn finding out what it knows.
 - **`solidity/`** — tree-sitter parsing. No compiler, so any single file works
@@ -63,7 +81,7 @@ whether the screen was right, which they cannot do with what it silently took.
   in two seconds having spent zero tokens — so a sweep that re-ran a pair would
   report a cost of nothing. `--cache` turns it on for iterating on everything
   downstream of the model, and prints that the cost column then means nothing.
-- **Temperature is pinned to 0.0.** Unpinned means the server's default, often
+- **Temperature is pinned to 0.0** (`SC_SENTRY_TEMPERATURE` overrides it). Unpinned means the server's default, often
   1.0, and two runs of one harness over one unit are then two samples of an
   unrecorded distribution: comparing them measures the sampler.
 - **`max_retries=3`.** Measured: 4 of 64 calls died with the adapter unable to
@@ -90,8 +108,10 @@ the runs file it scores, and a scoring front-end. The harness never imports it.
 
 [ca]: https://github.com/qazbnm456/contract-assay
 
+contract-assay is not on PyPI, and its repository is private for now: you need
+read access to it to install the extra. With that:
+
 ```bash
-# contract-assay is not on PyPI yet: install it from a clone first.
 git clone https://github.com/qazbnm456/contract-assay
 pip install -e ./contract-assay && pip install -e "./sc-sentry[contract-assay]"
 
@@ -104,7 +124,9 @@ sc-sentry-contract-assay score results/run.jsonl \
 
 The adapter adds no judgement of its own -- `evidence()` is the harness's
 candidates and `verdict()` its rejections -- so a benchmark figure measures
-the same harness `sc-sentry audit` runs. What it measured:
+the same harness `sc-sentry audit` runs. `run` also takes `--units N` (0 for
+every readable unit), `--only CLASS`, `--predictions-per-unit` (default 3), the
+same `--max-*` limits as `audit`, and `--cache`. What it measured:
 
 
 `lab-v2`, the best run to date: 12 units, 8 classes, 96 runs, 64 model calls,
@@ -134,7 +156,7 @@ Three things that table says, and each is a different fix:
 A figure over part of a corpus is not comparable with one over all of it. These
 12 units are a stratified slice (`slices.py`), chosen to cover every class once
 before covering any class twice, because the first 12 units of a corpus whose
-largest class holds 190 of 435 records measures that one class.
+largest class holds 200 of 478 records measures that one class.
 
 ## Licence
 

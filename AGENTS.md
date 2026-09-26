@@ -5,20 +5,21 @@ A standalone harness that hunts Solidity vulnerabilities with a model and writes
 ## Setup and the gate
 
 ```console
-$ pip install -e ".[dev]"                     # add ,contract-assay for the adapter
+$ pip install -e ".[dev]"
+$ pip install -e ../contract-assay -e ".[dev,contract-assay]"   # the adapter too: a clone of contract-assay first
 $ ruff check src tests && ruff format --check src tests
 $ mypy src --exclude 'sc_sentry/contract_assay'
 $ pytest
 ```
 
-CI runs exactly this, without contract-assay installed. A change is done when the local gate and the remote CI run are both green.
+CI runs exactly this, without contract-assay installed (its repository is private). With it installed, also run `mypy src` so the adapter is type-checked. A change is done when the local gate and the remote CI run are both green.
 
 ## Rules that are easy to break
 
 - **The core never imports `contract_assay`.** Only the `sc_sentry.contract_assay` subpackage may; a test asserts it, and CI would fail on the import anyway.
 - **The adapter adds no judgement.** Its detectors restate the core class checks; a change to a check changes both, identically.
 - **The Solidity parser is adapted from contract-assay's evidence parser.** A parse bug found in one is likely in the other; check both.
-- **The model endpoint and key are read from `.env`**, which is outside git. Never print it, echo it, or put its values in a test, a log or a commit.
+- **The model endpoint and key are read from `.env` in the working directory** (`sc_sentry/dotenv.py`; an exported variable wins), which is outside git. Tests that call a command `chdir` to a temporary directory so they never read the real one. Never print it, echo it, or put its values in a test, a log or a commit.
 
 ## Where to read more
 
