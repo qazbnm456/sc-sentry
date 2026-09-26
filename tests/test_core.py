@@ -176,6 +176,7 @@ class TestTheCommand:
         from sc_sentry import cli
 
         seen: list[Any] = []
+        monkeypatch.chdir(tmp_path)  # never the repository's own .env
         monkeypatch.setenv("RLM_MAIN_MODEL", "m")
         monkeypatch.setattr(audit_module, "configure_once", lambda **_: None)
         monkeypatch.setattr(
@@ -191,3 +192,79 @@ class TestTheCommand:
         assert cli.main([*argv, "--out", str(tmp_path / "r.json")]) == 0
         assert seen == [[VulnClass.SLIPPAGE, VulnClass.REENTRANCY]]
         assert cli.main(["audit", str(target), "--class", "nonsense"]) == 2
+
+
+class TestTheEnvironment:
+    def test_env_file_fills_only_what_is_unset(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+    ) -> None:
+        from sc_sentry import dotenv
+
+        env = tmp_path / ".env"
+        env.write_text(
+            "# comment\nRLM_MAIN_MODEL='from-file'\nexport RLM_SUB_MODEL=\"sub\"\n"
+            "RLM_BASE_URL=http://x\nnot a line\n"
+        )
+        monkeypatch.setenv("RLM_BASE_URL", "http://already")
+        monkeypatch.setenv("RLM_MAIN_MODEL", "")  # restored afterwards, whatever load() sets
+        monkeypatch.delenv("RLM_MAIN_MODEL")
+        monkeypatch.setenv("RLM_SUB_MODEL", "")  # restored afterwards, whatever load() sets
+        monkeypatch.delenv("RLM_SUB_MODEL")
+        assert dotenv.load(env) == ["RLM_MAIN_MODEL", "RLM_SUB_MODEL"]
+        import os
+
+        assert os.environ["RLM_MAIN_MODEL"] == "from-file"
+        assert os.environ["RLM_SUB_MODEL"] == "sub"
+        assert os.environ["RLM_BASE_URL"] == "http://already"
+        assert dotenv.load(tmp_path / "absent") == []
+
+    def test_the_command_reads_env_from_the_working_directory(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+    ) -> None:
+        from sc_sentry import cli
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RLM_MAIN_MODEL", "")  # restored afterwards, whatever load() sets
+        monkeypatch.delenv("RLM_MAIN_MODEL")
+        target = tmp_path / "Vault.sol"
+        target.write_text(VAULT)
+        assert cli.main(["audit", str(target)]) == 2
+        (tmp_path / ".env").write_text("RLM_MAIN_MODEL=m\n")
+        monkeypatch.setattr(audit_module, "configure_once", lambda **_: None)
+        monkeypatch.setattr(
+            audit_module,
+            "audit",
+            lambda source, path, classes: audit_module.Report(file=path, model="m"),
+        )
+        assert cli.main(["audit", str(target), "--out", str(tmp_path / "r.json")]) == 0
+
+    def test_max_tokens_flag_then_environment_then_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from sc_sentry.audit import DEFAULT_MAX_TOKENS, resolve_max_tokens
+
+        monkeypatch.delenv("RLM_MAX_TOKENS", raising=False)
+        assert resolve_max_tokens(None) == DEFAULT_MAX_TOKENS
+        monkeypatch.setenv("RLM_MAX_TOKENS", "")
+        assert resolve_max_tokens(None) == DEFAULT_MAX_TOKENS
+        monkeypatch.setenv("RLM_MAX_TOKENS", "4096")
+        assert resolve_max_tokens(None) == 4096
+        assert resolve_max_tokens(1000) == 1000
+
+    def test_cache_says_the_cost_means_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from sc_sentry import cli
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RLM_MAIN_MODEL", "m")
+        monkeypatch.setattr(audit_module, "configure_once", lambda **_: None)
+        monkeypatch.setattr(
+            audit_module,
+            "audit",
+            lambda source, path, classes: audit_module.Report(file=path, model="m"),
+        )
+        target = tmp_path / "Vault.sol"
+        target.write_text(VAULT)
+        assert cli.main(["audit", str(target), "--cache", "--out", str(tmp_path / "r.json")]) == 0
+        assert "CACHE ON" in capsys.readouterr().err

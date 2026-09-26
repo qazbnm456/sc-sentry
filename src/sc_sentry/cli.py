@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 
+from sc_sentry import dotenv
 from sc_sentry.classes import VulnClass
 
 __all__ = ["main"]
@@ -32,9 +33,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     audit.add_argument("--format", choices=["json", "sarif"], default="json")
     audit.add_argument("--out", type=Path, help="Write here instead of stdout.")
-    audit.add_argument("--max-tokens", type=int, default=32_768)
-    audit.add_argument("--max-calls", type=int, default=4)
-    audit.add_argument("--max-iterations", type=int, default=6)
+    audit.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="Per-call generation cap. Omitted, RLM_MAX_TOKENS if set, else 32768.",
+    )
+    audit.add_argument("--max-calls", type=int, default=4, help="Model calls per class. Default 4.")
+    audit.add_argument(
+        "--max-iterations", type=int, default=6, help="Planner turns per class. Default 6."
+    )
     audit.add_argument(
         "--cache",
         action="store_true",
@@ -51,14 +59,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{vuln.value:<26} {check.summary}")
         return 0
 
+    dotenv.load()
     missing = [str(f) for f in args.files if not f.is_file()]
     if missing:
         print(f"not a file: {', '.join(missing)}", file=sys.stderr)
         return 2
     if not os.environ.get("RLM_MAIN_MODEL"):
         print(
-            "RLM_MAIN_MODEL is not set. Copy .env.example to .env and fill it in, "
-            "or export the RLM_* variables.",
+            "RLM_MAIN_MODEL is not set. Copy .env.example to .env in this directory "
+            "and fill it in, or export the RLM_* variables.",
             file=sys.stderr,
         )
         return 2
@@ -73,6 +82,8 @@ def main(argv: list[str] | None = None) -> int:
         max_iterations=args.max_iterations,
         cache=args.cache,
     )
+    if args.cache:
+        print("CACHE ON: the token counts below measure nothing", file=sys.stderr, flush=True)
     named = [part.strip() for given in args.classes or () for part in given.split(",")]
     unknown = sorted({name for name in named if name not in {c.value for c in VulnClass}})
     if unknown:

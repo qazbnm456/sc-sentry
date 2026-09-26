@@ -45,6 +45,7 @@ from contract_assay.models import (
     Outcome,
 )
 
+from sc_sentry import dotenv
 from sc_sentry.audit import ask as ask_model
 from sc_sentry.audit import configure_once
 from sc_sentry.contract_assay.detectors import SENTRY_DETECTORS
@@ -215,7 +216,12 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="Where `contract-assay fetch --source-root` put the pinned sources.",
     )
-    parser.add_argument("--max-tokens", type=int, default=32_768)
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="Per-call generation cap. Omitted, RLM_MAX_TOKENS if set, else 32768.",
+    )
     parser.add_argument("--max-calls", type=int, default=4)
     parser.add_argument("--max-iterations", type=int, default=6)
     parser.add_argument("--predictions-per-unit", type=int, default=3)
@@ -228,13 +234,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    dotenv.load()
     if not os.environ.get("RLM_MAIN_MODEL"):
         # Checked here rather than at the first call, because the KeyError that
         # would otherwise land is raised in `run_unit` after a unit has already
         # been audited -- a crash that costs a sweep and names the wrong thing.
         print(
-            "RLM_MAIN_MODEL is not set. Copy .env.example to .env and fill it in,"
-            " or export the four RLM_* variables.",
+            "RLM_MAIN_MODEL is not set. Copy .env.example to .env in this directory and"
+            " fill it in, or export the four RLM_* variables.",
             file=sys.stderr,
         )
         return 2

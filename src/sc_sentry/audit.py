@@ -87,9 +87,20 @@ class Report:
 
 _CONFIGURED = False
 
+DEFAULT_MAX_TOKENS = 32_768
+"""Generous, because a reasoning model's chain of thought and its structured
+answer share one cap, and a turn that overruns it is cut off mid-JSON."""
+
+
+def resolve_max_tokens(given: int | None) -> int:
+    if given is not None:
+        return given
+    env = os.environ.get("RLM_MAX_TOKENS", "").strip()
+    return int(env) if env else DEFAULT_MAX_TOKENS
+
 
 def configure_once(
-    *, max_tokens: int, max_calls: int, max_iterations: int, cache: bool = False
+    *, max_tokens: int | None, max_calls: int, max_iterations: int, cache: bool = False
 ) -> None:
     """Models and endpoint from the environment, once per process.
 
@@ -97,6 +108,9 @@ def configure_once(
     comes back in two seconds having spent zero tokens -- a cost figure about a
     different run. `cache=True` is for iterating on everything downstream of
     the model, where the cached answer is exactly what is wanted.
+
+    `max_tokens=None` means `RLM_MAX_TOKENS` if set, else `DEFAULT_MAX_TOKENS`:
+    an explicit flag wins over the environment, and the environment over ours.
     """
     global _CONFIGURED
     if _CONFIGURED:
@@ -109,7 +123,7 @@ def configure_once(
     dspy.configure_cache(enable_disk_cache=cache, enable_memory_cache=cache)
     cfg = replace(
         RLMConfig.from_env(),
-        max_tokens=max_tokens,
+        max_tokens=resolve_max_tokens(max_tokens),
         max_llm_calls=max_calls,
         max_iterations=max_iterations,
         # Measured: 4 of 64 calls died as "Failed to produce a valid 'findings'
