@@ -15,47 +15,29 @@ rejection below is one the class definition settles, not one about likelihood.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from functools import lru_cache
 
+from sc_sentry.candidate import Candidate, Span
+from sc_sentry.candidates import (
+    access_control,
+    arithmetic_rounding,
+    denial_of_service,
+    oracle_integrity,
+    reentrancy,
+    slippage,
+)
 from sc_sentry.classes import VulnClass
 from sc_sentry.solidity import Site, Syntax
 
 __all__ = ["CHECKS", "Candidate", "CandidateFunction", "Check", "Span", "parse"]
-
-Detail = Mapping[str, str | int | float | bool]
 
 
 @lru_cache(maxsize=32)
 def parse(source: str) -> Syntax | None:
     """Parsed once per unit, not once per citation."""
     return Syntax.of(source)
-
-
-@dataclass(frozen=True, slots=True)
-class Span:
-    """What a rejection reads: a candidate's kind, lines and function."""
-
-    predicate: str
-    start_line: int
-    end_line: int
-    function: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class Candidate:
-    """A site a class could be at, with what established it."""
-
-    predicate: str
-    site: Site
-    detail: Detail = field(default_factory=dict)
-
-    @property
-    def span(self) -> Span:
-        return Span(
-            self.predicate, self.site.start_line, self.site.end_line, self.site.host.function
-        )
 
 
 def _candidate(predicate: str, site: Site, **detail: object) -> Candidate:
@@ -151,27 +133,6 @@ def _by_line(candidate: Candidate) -> int:
     return candidate.site.start_line
 
 
-# --- access control -------------------------------------------------------
-
-
-def _access_control(parsed: Syntax) -> list[Candidate]:
-    reachable = {
-        fn.site.host.function
-        for fn in parsed.functions
-        if fn.is_externally_reachable and not fn.is_read_only
-    }
-    return [
-        _candidate(
-            "state_write_on_an_externally_reachable_path",
-            w.site,
-            target=w.target_root or "",
-            function=w.site.host.function or "",
-        )
-        for w in parsed.writes
-        if w.site.host.function in reachable
-    ]
-
-
 def _covered(what: str) -> Callable[[Syntax | None, Sequence[Span], int, int], str | None]:
     def rejects(_: Syntax | None, spans: Sequence[Span], start: int, end: int) -> str | None:
         return None if _covers(spans, start, end) else what
@@ -180,26 +141,6 @@ def _covered(what: str) -> Callable[[Syntax | None, Sequence[Span], int, int], s
 
 
 # --- reentrancy -----------------------------------------------------------
-
-
-def _reentrancy(parsed: Syntax) -> list[Candidate]:
-    first_call: dict[str | None, int] = {}
-    for c in parsed.calls:
-        fn = c.site.host.function
-        first_call[fn] = min(first_call.get(fn, 10**9), c.site.start_line)
-    out = [_candidate("external_call", c.site, callee=c.callee or "") for c in parsed.calls]
-    for w in parsed.writes:
-        after = first_call.get(w.site.host.function)
-        if after is not None and w.site.start_line > after:
-            out.append(
-                _candidate(
-                    "state_write_after_an_external_call",
-                    w.site,
-                    call_line=after,
-                    target=w.target_root or "",
-                )
-            )
-    return out
 
 
 def _reentrancy_rejects(
@@ -233,36 +174,6 @@ def _unchecked(parsed: Syntax) -> list[Candidate]:
 
 # --- oracle integrity -----------------------------------------------------
 
-_READS = (
-    "latestRoundData",
-    "latestAnswer",
-    "latestRound",
-    "getReserves",
-    "slot0",
-    "getAmountsOut",
-    "quote",
-    "getPrice",
-    "price",
-    "consult",
-    "observe",
-    "getPriceUnsafe",
-    "getPriceNoOlderThan",
-)
-
-
-def _oracle(parsed: Syntax) -> list[Candidate]:
-    out = [
-        _candidate("external_value_read", c.site, callee=c.callee)
-        for c in parsed.calls
-        if c.callee in _READS
-    ]
-    out += [
-        _candidate("external_value_read", site, member=member)
-        for site, _obj, member in parsed.member_reads
-        if member in _READS
-    ]
-    return out
-
 
 def _oracle_rejects(
     parsed: Syntax | None, spans: Sequence[Span], start: int, end: int
@@ -279,47 +190,7 @@ def _oracle_rejects(
 # --- arithmetic rounding --------------------------------------------------
 
 
-def _arithmetic(parsed: Syntax) -> list[Candidate]:
-    out: list[Candidate] = []
-    for a in parsed.arithmetic:
-        if a.divides_then_scales:
-            out.append(_candidate("division_before_scaling", a.site, operator=a.operator or ""))
-        elif "/" in (a.operand_operators or ()) or a.operator == "/":
-            out.append(_candidate("division", a.site, operator=a.operator or ""))
-    return out
-
-
 # --- slippage -------------------------------------------------------------
-
-_SWAPS = (
-    "swap",
-    "swapExactTokensForTokens",
-    "swapTokensForExactTokens",
-    "swapExactETHForTokens",
-    "swapExactTokensForETH",
-    "exactInputSingle",
-    "exactInput",
-    "exactOutputSingle",
-    "addLiquidity",
-    "removeLiquidity",
-    "addLiquidityETH",
-    "removeLiquidityETH",
-    "exchange",
-    "swapExactTokensForTokensSupportingFeeOnTransferTokens",
-)
-
-
-def _slippage(parsed: Syntax) -> list[Candidate]:
-    out: list[Candidate] = []
-    for c in parsed.calls:
-        if c.callee in _SWAPS or (c.callee or "").startswith("swap"):
-            zeros = [a.text for a in c.arguments if a.is_zero_literal]
-            out.append(
-                _candidate(
-                    "exchange_call", c.site, callee=c.callee or "", zero_arguments=len(zeros)
-                )
-            )
-    return out
 
 
 def _slippage_rejects(
@@ -333,21 +204,6 @@ def _slippage_rejects(
 
 
 # --- denial of service ----------------------------------------------------
-
-
-def _denial_of_service(parsed: Syntax) -> list[Candidate]:
-    out = [
-        _candidate("loop", ls.site, bound_on=",".join(ls.bound_identifiers or ()))
-        for ls in parsed.loops
-    ]
-    loop_spans = [(ls.site.start_line, ls.site.end_line) for ls in parsed.loops]
-    out += [
-        _candidate("external_call_inside_a_loop", c.site, callee=c.callee or "")
-        for c in parsed.calls
-        if any(a <= c.site.start_line <= b for a, b in loop_spans)
-    ]
-    out += [_candidate("revert_condition", g.site) for g in parsed.guards]
-    return out
 
 
 # --- insecure randomness --------------------------------------------------
@@ -375,20 +231,23 @@ CHECKS: dict[VulnClass, Check] = {
         Check(
             VulnClass.ACCESS_CONTROL,
             "A state-changing path with nothing establishing the caller's right to it.",
-            _access_control,
+            access_control.candidates,
             _covered("reachable_state_write"),
+            priority=access_control.priority,
         ),
         Check(
             VulnClass.ARITHMETIC_ROUNDING,
             "Arithmetic whose result is wrong in a direction that matters.",
-            _arithmetic,
+            arithmetic_rounding.candidates,
             _covered("division"),
+            priority=arithmetic_rounding.priority,
         ),
         Check(
             VulnClass.DENIAL_OF_SERVICE,
             "A path an outsider can make permanently unusable for somebody else.",
-            _denial_of_service,
+            denial_of_service.candidates,
             _covered("loop_call_or_revert"),
+            priority=denial_of_service.priority,
         ),
         Check(
             VulnClass.INSECURE_RANDOMNESS,
@@ -399,20 +258,23 @@ CHECKS: dict[VulnClass, Check] = {
         Check(
             VulnClass.ORACLE_INTEGRITY,
             "A value read from outside and used without establishing it can be trusted.",
-            _oracle,
+            oracle_integrity.candidates,
             _oracle_rejects,
+            priority=oracle_integrity.priority,
         ),
         Check(
             VulnClass.REENTRANCY,
             "A state write after an external call in the same function.",
-            _reentrancy,
+            reentrancy.candidates,
             _reentrancy_rejects,
+            priority=reentrancy.priority,
         ),
         Check(
             VulnClass.SLIPPAGE,
             "An exchange with no enforced bound on what comes back.",
-            _slippage,
+            slippage.candidates,
             _slippage_rejects,
+            priority=slippage.priority,
         ),
         Check(
             VulnClass.UNCHECKED_EXTERNAL_CALL,

@@ -221,6 +221,8 @@ def ask(source: str, brief: str) -> Answer:
     )
 
 
+MODES = ("explore", "triage", "static")
+
 DEFAULT_STATIC_LIMIT = 9
 """How many findings a class keeps per file without a model: the benchmark's default cap."""
 
@@ -230,14 +232,24 @@ def audit(
     path: str,
     classes: Iterable[VulnClass] | None = None,
     *,
-    static: bool = False,
+    mode: str = "explore",
     limit: int | None = DEFAULT_STATIC_LIMIT,
+    sent: int = 20,
 ) -> Report:
     """Audit one file for each class asked (every class by default).
 
-    `static=True` asks no model: each class's candidate functions come back as findings,
-    likeliest first and at most `limit` of them, each marked `origin="static"`.
+    `mode` is how a class is answered:
+
+    - `explore`: a planner with tools investigates and cites what it finds.
+    - `triage`: the harness's candidate functions go to the model in one call, which decides
+      which are instances. The citations are the code's, and the report keeps every
+      candidate, the model's picks first. At most `sent` go to the model.
+    - `static`: no model. The candidate functions are the findings, likeliest first.
+
+    Both of the last two keep at most `limit` findings for a class.
     """
+    if mode not in MODES:
+        raise ValueError(f"mode must be one of {', '.join(MODES)}, not {mode!r}")
     wanted = list(classes) if classes is not None else list(VulnClass)
     parsed = parse(source)
     results: list[ClassResult] = []
@@ -247,7 +259,26 @@ def audit(
         if not candidates:
             results.append(ClassResult(vuln=vuln, candidates=0, asked=False))
             continue
-        if static:
+        if mode == "triage":
+            from sc_sentry import triage
+
+            entries, shown, triaged = triage.run(vuln, source, path, sent=sent)
+            answer_t = triaged or triage.TriageAnswer(verdicts={}, tokens=0, seconds=0.0)
+            results.append(
+                ClassResult(
+                    vuln=vuln,
+                    candidates=len(candidates),
+                    asked=shown > 0,
+                    findings=triage.triage_findings(
+                        vuln, source, path, entries, shown, answer_t, limit=limit
+                    ),
+                    tokens=answer_t.tokens,
+                    seconds=answer_t.seconds,
+                    failed=answer_t.failed,
+                )
+            )
+            continue
+        if mode == "static":
             from sc_sentry.static import static_findings
 
             results.append(

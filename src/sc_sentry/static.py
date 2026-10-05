@@ -17,7 +17,14 @@ from sc_sentry.audit import Finding
 from sc_sentry.checks import CHECKS, Candidate, CandidateFunction
 from sc_sentry.classes import VulnClass
 
-__all__ = ["describe", "quote_of", "static_findings"]
+__all__ = [
+    "UNREVIEWED_CONFIDENCE",
+    "describe",
+    "finding_for",
+    "quote_of",
+    "static_findings",
+    "unreviewed_reasoning",
+]
 
 UNREVIEWED_CONFIDENCE = 1
 
@@ -34,33 +41,56 @@ def describe(candidate: Candidate) -> str:
     return f"{what} ({detail})" if detail else what
 
 
-def _reasoning(entry: CandidateFunction) -> str:
+def unreviewed_reasoning(entry: CandidateFunction) -> str:
     more = len(entry.candidates) - 1
     tail = f"; {more} more site(s) in this function" if more else ""
     return f"Candidate, not reviewed by a model: {describe(entry.best)}{tail}."
+
+
+def finding_for(
+    vuln: VulnClass,
+    source: str,
+    path: str,
+    entry: CandidateFunction,
+    *,
+    confidence: int,
+    reasoning: str,
+    origin: str,
+    rejected: str | None = None,
+) -> Finding:
+    """A finding cited at the candidate function's best site, whole lines, in that function."""
+    site = entry.best.site
+    return Finding(
+        vuln=vuln,
+        file=path,
+        start_line=site.start_line,
+        end_line=max(site.end_line, site.start_line),
+        function=entry.function,
+        contract=entry.contract,
+        quote=quote_of(source, site.start_line, site.end_line),
+        reasoning=reasoning,
+        confidence=confidence,
+        rejected=rejected,
+        origin=origin,
+    )
 
 
 def static_findings(
     vuln: VulnClass, source: str, path: str, *, limit: int | None = None
 ) -> tuple[Finding, ...]:
     """The class's candidate functions as findings, likeliest first, at most `limit`."""
-    out: list[Finding] = []
-    for entry in CHECKS[vuln].functions(source):
-        site = entry.best.site
-        out.append(
-            Finding(
-                vuln=vuln,
-                file=path,
-                start_line=site.start_line,
-                end_line=max(site.end_line, site.start_line),
-                function=entry.function,
-                contract=entry.contract,
-                quote=quote_of(source, site.start_line, site.end_line),
-                reasoning=_reasoning(entry),
-                confidence=UNREVIEWED_CONFIDENCE,
-                origin="static",
-            )
+    entries = CHECKS[vuln].functions(source)
+    if limit is not None:
+        entries = entries[:limit]
+    return tuple(
+        finding_for(
+            vuln,
+            source,
+            path,
+            entry,
+            confidence=UNREVIEWED_CONFIDENCE,
+            reasoning=unreviewed_reasoning(entry),
+            origin="static",
         )
-        if limit is not None and len(out) >= limit:
-            break
-    return tuple(out)
+        for entry in entries
+    )

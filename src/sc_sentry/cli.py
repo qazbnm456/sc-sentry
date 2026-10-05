@@ -40,10 +40,24 @@ def main(argv: list[str] | None = None) -> int:
         help="Per-call generation cap. Omitted, RLM_MAX_TOKENS if set, else 32768.",
     )
     audit.add_argument(
-        "--static",
-        action="store_true",
-        help="Ask no model: report each class's candidate functions, likeliest first. The "
-        "control group for what the model adds, and it needs no .env.",
+        "--mode",
+        choices=("explore", "triage", "static"),
+        default="explore",
+        help="explore: a planner investigates with tools. triage: the model decides which of "
+        "the harness's candidate functions are instances. static: no model, the candidates "
+        "themselves, likeliest first (the control group, and it needs no .env).",
+    )
+    audit.add_argument(
+        "--limit",
+        type=int,
+        default=9,
+        help="Findings kept per class in triage and static modes. Default 9, the benchmark's.",
+    )
+    audit.add_argument(
+        "--candidates",
+        type=int,
+        default=20,
+        help="Candidate functions sent to the model per class in triage mode. Default 20.",
     )
     audit.add_argument("--max-calls", type=int, default=4, help="Model calls per class. Default 4.")
     audit.add_argument(
@@ -70,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         print(f"not a file: {', '.join(missing)}", file=sys.stderr)
         return 2
-    if not args.static and not os.environ.get("RLM_MAIN_MODEL"):
+    if args.mode != "static" and not os.environ.get("RLM_MAIN_MODEL"):
         print(
             "RLM_MAIN_MODEL is not set. Copy .env.example to .env in this directory "
             "and fill it in, or export the RLM_* variables.",
@@ -82,14 +96,14 @@ def main(argv: list[str] | None = None) -> int:
     from sc_sentry.audit import configure_once
     from sc_sentry.report import to_json, to_sarif
 
-    if not args.static:
+    if args.mode != "static":
         configure_once(
             max_tokens=args.max_tokens,
             max_calls=args.max_calls,
             max_iterations=args.max_iterations,
             cache=args.cache,
         )
-    if args.cache and not args.static:
+    if args.cache and args.mode != "static":
         print("CACHE ON: the token counts below measure nothing", file=sys.stderr, flush=True)
     named = [part.strip() for given in args.classes or () for part in given.split(",")]
     unknown = sorted({name for name in named if name not in {c.value for c in VulnClass}})
@@ -107,10 +121,12 @@ def main(argv: list[str] | None = None) -> int:
             path.read_text(encoding="utf-8", errors="replace"),
             str(path),
             classes,
-            static=args.static,
+            mode=args.mode,
+            limit=args.limit,
+            sent=args.candidates,
         )
         for result in report.results:
-            if result.asked or (args.static and result.findings):
+            if result.asked or result.findings:
                 kept = sum(1 for f in result.findings if f.rejected is None)
                 print(
                     f"  {result.vuln.value:<24} {result.candidates:>3} candidate(s), "

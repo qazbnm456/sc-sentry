@@ -496,6 +496,23 @@ class Syntax:
     def text(self, node: Node) -> str:
         return self._data[node.start_byte : node.end_byte].decode("utf-8", "replace")
 
+    @cached_property
+    def lines(self) -> list[str]:
+        """The source split into lines, so a citation can be read back as whole lines."""
+        return self._data.decode("utf-8", "replace").split("\n")
+
+    @property
+    def root(self) -> Node:
+        return self._tree.root_node
+
+    def nodes(self, *types: str) -> list[Node]:
+        """Every node of these tree-sitter types, in source order."""
+        return self._nodes(*types)
+
+    def site_of(self, node: Node) -> Site:
+        """A syntax node as a site: its text, its lines and the callable it sits in."""
+        return self._site(node)
+
     def _nodes(self, *types: str) -> list[Node]:
         wanted = frozenset(types)
         found: list[Node] = []

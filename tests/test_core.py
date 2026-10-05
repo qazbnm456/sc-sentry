@@ -63,10 +63,10 @@ class TestTheClasses:
 
 
 class TestCandidates:
-    def test_an_exchange_call_is_a_slippage_candidate(self) -> None:
+    def test_an_exchange_with_a_zero_minimum_is_a_slippage_candidate(self) -> None:
         found = CHECKS[VulnClass.SLIPPAGE].find(VAULT)
-        assert [(c.predicate, c.site.start_line, c.detail["zero_arguments"]) for c in found] == [
-            ("exchange_call", 5, 1)
+        assert [(c.predicate, c.site.start_line, c.detail["zero_args"]) for c in found] == [
+            ("zero_bound", 5, 1)
         ]
 
     def test_a_file_that_does_not_parse_has_no_candidates(self) -> None:
@@ -170,7 +170,7 @@ class TestTheAsk:
 
 
 class TestTheFindingsNeedNoModel:
-    """`--static`: the candidates, one per function, as the control group for the model."""
+    """`--mode static`: the candidates, one per function, as the control group for the model."""
 
     def test_a_function_with_several_candidates_is_one_entry(self) -> None:
         # `sell` holds the call and the write after it, and a cap counts findings, so the
@@ -221,10 +221,10 @@ class TestTheFindingsNeedNoModel:
 
     def test_a_static_audit_never_reaches_the_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def never(source: str, brief: str) -> Answer:
-            raise AssertionError("--static must not ask a model")
+            raise AssertionError("static mode must not ask a model")
 
         monkeypatch.setattr(audit_module, "ask", never)
-        report = audit(VAULT, "src/Vault.sol", [VulnClass.SLIPPAGE], static=True)
+        report = audit(VAULT, "src/Vault.sol", [VulnClass.SLIPPAGE], mode="static")
         [result] = report.results
         assert (result.asked, result.candidates, len(result.findings)) == (False, 1, 1)
 
@@ -241,12 +241,14 @@ class TestTheFindingsNeedNoModel:
         target.write_text(VAULT)
         out = tmp_path / "r.json"
         assert (
-            cli.main(["audit", str(target), "--static", "--class", "slippage", "--out", str(out)])
+            cli.main(
+                ["audit", str(target), "--mode", "static", "--class", "slippage", "--out", str(out)]
+            )
             == 0
         )
         [file] = json.loads(out.read_text())["files"]
         assert [f["origin"] for f in file["classes"][0]["findings"]] == ["static"]
-        # Without --static the same command still refuses to start with no model named.
+        # Without --mode static the same command still refuses to start with no model named.
         assert cli.main(["audit", str(target), "--class", "slippage"]) == 2
 
 
