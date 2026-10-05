@@ -36,7 +36,7 @@ from contract_assay.models import DEFAULT_PREDICTIONS_PER_UNIT
 
 from sc_sentry import dotenv
 from sc_sentry.audit import configure_once
-from sc_sentry.contract_assay.detectors import SENTRY_DETECTORS
+from sc_sentry.contract_assay.detectors import SENTRY_DETECTORS, STATIC_DETECTORS
 from sc_sentry.contract_assay.slices import slice_of
 
 
@@ -66,6 +66,14 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Per-call generation cap. Omitted, RLM_MAX_TOKENS if set, else 32768.",
     )
+    parser.add_argument(
+        "--mode",
+        choices=("triage", "explore", "static"),
+        default="triage",
+        help="triage: the model decides which candidate functions are instances. explore: a "
+        "planner with tools investigates. static: no model, the candidates themselves "
+        "(the control group, and it needs no .env).",
+    )
     parser.add_argument("--max-calls", type=int, default=4)
     parser.add_argument("--max-iterations", type=int, default=6)
     parser.add_argument(
@@ -85,7 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     dotenv.load()
-    if not os.environ.get("RLM_MAIN_MODEL"):
+    if args.mode == "explore":
+        os.environ["SC_SENTRY_MODE"] = "explore"
+    if args.mode != "static" and not os.environ.get("RLM_MAIN_MODEL"):
         # Checked here rather than at the first call: the error that would otherwise land
         # is raised after a unit has already been audited, which costs a sweep and names
         # the wrong thing.
@@ -96,17 +106,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    configure_once(
-        max_tokens=args.max_tokens,
-        max_calls=args.max_calls,
-        max_iterations=args.max_iterations,
-        cache=args.cache,
-    )
-    if args.cache:
-        print("CACHE ON: the cost figures below measure nothing", file=sys.stderr, flush=True)
-    from sc_sentry.contract_assay.caller import call
+    if args.mode != "static":
+        configure_once(
+            max_tokens=args.max_tokens,
+            max_calls=args.max_calls,
+            max_iterations=args.max_iterations,
+            cache=args.cache,
+        )
+        if args.cache:
+            print("CACHE ON: the cost figures below measure nothing", file=sys.stderr, flush=True)
+    model = None
+    if args.mode != "static":
+        from sc_sentry.contract_assay.caller import call
 
-    detectors = [cls() for cls in SENTRY_DETECTORS]
+        model = call
+    detectors = [cls() for cls in (STATIC_DETECTORS if args.mode == "static" else SENTRY_DETECTORS)]
     if args.only:
         detectors = [d for d in detectors if d.class_id.value == args.only]
         if not detectors:
@@ -134,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         for run in run_submission(
             detectors,
             units,
-            model=call,
+            model=model,
             # The dev loop's, so the overrun line `caller.call` prints for a round's 30
             # seconds does not fire on every class. `contract-assay run` keeps the benchmark's.
             wall_seconds=10_000,

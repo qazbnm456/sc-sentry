@@ -18,6 +18,7 @@ from collections.abc import Sequence
 
 from contract_assay.detectors.base import AnalysisContext, Detector, ModelTaskSpec
 from contract_assay.models import (
+    DEFAULT_PREDICTIONS_PER_UNIT,
     EvidenceRef,
     FailedCheck,
     Finding,
@@ -28,11 +29,42 @@ from contract_assay.models import (
     VulnerabilityClass as V,
 )
 
+from sc_sentry import audit as sc_audit
 from sc_sentry.briefs import BRIEFS
 from sc_sentry.checks import CHECKS, Check, Span, parse
 from sc_sentry.classes import VulnClass
+from sc_sentry.static import static_findings
 
-__all__ = ["SENTRY_DETECTORS"]
+__all__ = ["SENTRY_DETECTORS", "STATIC_DETECTORS", "to_benchmark_findings"]
+
+
+def to_benchmark_findings(
+    detector_id: str, path: str, findings: Sequence[sc_audit.Finding]
+) -> tuple[Finding, ...]:
+    """The harness's findings as the benchmark's, scored by position.
+
+    The list is already in the order the harness stands behind, so a finding's score is how
+    far from the end it sits. That keeps the order for a round ranked on bpref, which needs a
+    score on every finding of a class, without inventing a confidence the harness never had
+    for the ones no model looked at.
+    """
+    count = len(findings)
+    return tuple(
+        Finding(
+            detector_id=detector_id,
+            locator=Locator(
+                file=path,
+                contract=f.contract,
+                function=f.function,
+                start_line=f.start_line,
+                end_line=max(f.end_line, f.start_line),
+            ),
+            quote=f.quote,
+            reasoning=f.reasoning,
+            score=float(count - index),
+        )
+        for index, f in enumerate(findings)
+    )
 
 
 class _Base(Detector):
@@ -145,6 +177,57 @@ class InsecureRandomness(_Base):
     api_version = "1.1"
 
 
+class _Static(_Base):
+    """The same checks with no model: `propose()` asserts the candidate functions.
+
+    This is the harness's own control group. It asks for no model (`plan()` returns `None`),
+    so `contract-assay run` needs no caller, and what it scores is what the checks find and
+    order, at the benchmark's default cap. A figure from the model-backed detectors means
+    something only beside this one.
+    """
+
+    def plan(self, ctx: AnalysisContext, evidence: Sequence[EvidenceRef]) -> ModelTaskSpec | None:
+        return None
+
+    def propose(self, ctx: AnalysisContext, evidence: Sequence[EvidenceRef]) -> Sequence[Finding]:
+        found = static_findings(
+            VulnClass(self.class_id.value), ctx.source, ctx.path, limit=DEFAULT_PREDICTIONS_PER_UNIT
+        )
+        return to_benchmark_findings(self.detector_id, ctx.path, found)
+
+
+class StaticAccessControl(_Static, AccessControl):
+    detector_id = "sentry-static-access-control"
+
+
+class StaticReentrancy(_Static, Reentrancy):
+    detector_id = "sentry-static-reentrancy"
+
+
+class StaticUncheckedExternalCall(_Static, UncheckedExternalCall):
+    detector_id = "sentry-static-unchecked-external-call"
+
+
+class StaticOracleIntegrity(_Static, OracleIntegrity):
+    detector_id = "sentry-static-oracle-integrity"
+
+
+class StaticArithmeticRounding(_Static, ArithmeticRounding):
+    detector_id = "sentry-static-arithmetic-rounding"
+
+
+class StaticSlippage(_Static, Slippage):
+    detector_id = "sentry-static-slippage"
+
+
+class StaticDenialOfService(_Static, DenialOfService):
+    detector_id = "sentry-static-denial-of-service"
+
+
+class StaticInsecureRandomness(_Static, InsecureRandomness):
+    detector_id = "sentry-static-insecure-randomness"
+
+
 SENTRY_DETECTORS: tuple[type[Detector], ...] = (
     AccessControl,
     ArithmeticRounding,
@@ -154,4 +237,15 @@ SENTRY_DETECTORS: tuple[type[Detector], ...] = (
     Reentrancy,
     Slippage,
     UncheckedExternalCall,
+)
+
+STATIC_DETECTORS: tuple[type[Detector], ...] = (
+    StaticAccessControl,
+    StaticArithmeticRounding,
+    StaticDenialOfService,
+    StaticInsecureRandomness,
+    StaticOracleIntegrity,
+    StaticReentrancy,
+    StaticSlippage,
+    StaticUncheckedExternalCall,
 )

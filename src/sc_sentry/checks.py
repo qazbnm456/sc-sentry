@@ -28,6 +28,7 @@ from sc_sentry.candidates import (
     reentrancy,
     slippage,
 )
+from sc_sentry.candidates.citable import citable_site
 from sc_sentry.classes import VulnClass
 from sc_sentry.solidity import Site, Syntax
 
@@ -163,12 +164,22 @@ def _unchecked(parsed: Syntax) -> list[Candidate]:
     for c in parsed.calls:
         if c.is_low_level and not c.bound_names:
             out.append(
-                _candidate("low_level_call_with_no_bound_result", c.site, callee=c.callee or "")
+                _candidate(
+                    "low_level_call_with_no_bound_result",
+                    citable_site(parsed, c.site),
+                    callee=c.callee or "",
+                )
             )
         elif c.is_bare_statement:
             # The shape with no symptom at the call site: an interface call
             # returning a discardable bool, used as a statement.
-            out.append(_candidate("call_result_used_as_a_statement", c.site, callee=c.callee or ""))
+            out.append(
+                _candidate(
+                    "call_result_used_as_a_statement",
+                    citable_site(parsed, c.site),
+                    callee=c.callee or "",
+                )
+            )
     return out
 
 
@@ -213,12 +224,12 @@ _CHAIN_STATE = ("timestamp", "number", "prevrandao", "difficulty", "coinbase", "
 
 def _randomness(parsed: Syntax) -> list[Candidate]:
     out = [
-        _candidate("chain_state_read", site, member=member)
+        _candidate("chain_state_read", citable_site(parsed, site), member=member)
         for site, obj, member in parsed.member_reads
         if obj == "block" and member in _CHAIN_STATE
     ]
     out += [
-        _candidate("hash_of_chain_state", c.site, callee=c.callee)
+        _candidate("hash_of_chain_state", citable_site(parsed, c.site), callee=c.callee)
         for c in parsed.calls
         if c.callee in {"keccak256", "blockhash", "sha256"}
     ]

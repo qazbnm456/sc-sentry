@@ -30,10 +30,18 @@ from collections.abc import Sequence
 
 from contract_assay.detectors.base import AnalysisContext, Detector, ModelTaskSpec
 from contract_assay.harness import ModelReply
-from contract_assay.models import Finding, Locator, ModelRole, ModelUse
+from contract_assay.models import (
+    DEFAULT_PREDICTIONS_PER_UNIT,
+    Finding,
+    Locator,
+    ModelRole,
+    ModelUse,
+)
 
-from sc_sentry import dotenv
+from sc_sentry import dotenv, triage
 from sc_sentry.audit import Answer, ask, configure_once
+from sc_sentry.classes import VulnClass
+from sc_sentry.contract_assay.detectors import to_benchmark_findings
 from sc_sentry.task import Proposal
 
 __all__ = ["call", "models_used", "to_findings"]
@@ -52,6 +60,10 @@ if not MAIN_MODEL:
 SUB_MODEL = os.environ.get("RLM_SUB_MODEL") or MAIN_MODEL
 MAX_ITERATIONS = int(os.environ.get("SC_SENTRY_MAX_ITERATIONS", "6"))
 CACHE = os.environ.get("SC_SENTRY_CACHE") == "1"
+MODE = os.environ.get("SC_SENTRY_MODE", "triage")
+if MODE not in ("triage", "explore"):
+    raise RuntimeError(f"SC_SENTRY_MODE must be triage or explore, not {MODE!r}")
+CANDIDATES = int(os.environ.get("SC_SENTRY_CANDIDATES", str(triage.DEFAULT_CANDIDATES)))
 
 
 def to_findings(
@@ -110,25 +122,43 @@ def models_used(
     )
 
 
-def call(detector: Detector, spec: ModelTaskSpec, ctx: AnalysisContext) -> ModelReply:
-    """One planner run for this detector's class over this unit, and what it cost."""
-    configure_once(
-        max_tokens=None,
-        max_calls=ctx.limits.max_model_calls,
-        max_iterations=MAX_ITERATIONS,
-        cache=CACHE,
+def _triage(detector: Detector, ctx: AnalysisContext) -> ModelReply:
+    """The harness's candidate functions, with the model deciding which are instances.
+
+    The citations are the code's, so a finding cannot fail its citation check for a quote the
+    model misread, and the report keeps every candidate: a function the model marked moves up,
+    one it never saw or ruled out stays below. A failed call therefore costs the model's
+    judgement and not the findings, and says so on stderr.
+    """
+    vuln = VulnClass(detector.class_id.value)
+    limit = DEFAULT_PREDICTIONS_PER_UNIT
+    entries, shown, answer = triage.run(vuln, ctx.source, ctx.path, sent=CANDIDATES)
+    answered = answer or triage.TriageAnswer(verdicts={}, tokens=0, seconds=0.0)
+    found = triage.triage_findings(
+        vuln, ctx.source, ctx.path, entries, shown, answered, limit=limit
     )
-    answer: Answer = ask(ctx.source, spec.instruction)
-    models = models_used(answer.usage, main=MAIN_MODEL, sub=SUB_MODEL)
+    findings = to_benchmark_findings(detector.detector_id, ctx.path, found)
+    models = models_used(answered.usage, main=MAIN_MODEL, sub=SUB_MODEL) if shown else ()
     print(
-        f"    {detector.class_id.value:<24} {answer.seconds:>5.0f}s {answer.tokens:>7} tok"
-        f"  {len(answer.proposals)} proposal(s)",
+        f"    {detector.class_id.value:<24} {answered.seconds:>5.0f}s {answered.tokens:>7} tok"
+        f"  {len(entries)} candidate function(s), {shown} reviewed, {len(findings)} reported",
         file=sys.stderr,
         flush=True,
     )
+    if answered.failed is not None:
+        print(
+            f"      triage failed ({answered.failed}); these are the unreviewed candidates",
+            file=sys.stderr,
+            flush=True,
+        )
+    _warn_over(ctx, answered.seconds, answered.tokens)
+    return ModelReply(findings=findings, models=models)
+
+
+def _warn_over(ctx: AnalysisContext, seconds: float, tokens: int) -> None:
     for spent, limit, unit in (
-        (answer.seconds, ctx.limits.wall_seconds, "s"),
-        (answer.tokens, ctx.limits.max_tokens, " tokens"),
+        (seconds, ctx.limits.wall_seconds, "s"),
+        (tokens, ctx.limits.max_tokens, " tokens"),
     ):
         if spent > limit:
             # Not enforced here, and not by `contract-assay run`. A round kills or refuses a
@@ -140,6 +170,31 @@ def call(detector: Detector, spec: ModelTaskSpec, ctx: AnalysisContext) -> Model
                 file=sys.stderr,
                 flush=True,
             )
+
+
+def call(detector: Detector, spec: ModelTaskSpec, ctx: AnalysisContext) -> ModelReply:
+    """One model run for this detector's class over this unit, and what it cost.
+
+    `triage` (the default) reviews the harness's own candidate functions in one call. `explore`
+    is the planner with tools, which investigates and cites what it finds.
+    """
+    configure_once(
+        max_tokens=None,
+        max_calls=ctx.limits.max_model_calls,
+        max_iterations=MAX_ITERATIONS,
+        cache=CACHE,
+    )
+    if MODE == "triage":
+        return _triage(detector, ctx)
+    answer: Answer = ask(ctx.source, spec.instruction)
+    models = models_used(answer.usage, main=MAIN_MODEL, sub=SUB_MODEL)
+    print(
+        f"    {detector.class_id.value:<24} {answer.seconds:>5.0f}s {answer.tokens:>7} tok"
+        f"  {len(answer.proposals)} proposal(s)",
+        file=sys.stderr,
+        flush=True,
+    )
+    _warn_over(ctx, answer.seconds, answer.tokens)
     if answer.failed is not None:
         return ModelReply(failed=answer.failed, models=models)
     return ModelReply(findings=to_findings(detector, ctx, answer.proposals), models=models)

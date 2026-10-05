@@ -20,18 +20,26 @@ from contract_assay.detectors.base import AnalysisContext, SubmissionLimits
 from contract_assay.detectors.loading import SubmissionManifest, load_detector
 from contract_assay.harness import SourceUnit, run_submission
 from contract_assay.models import (
+    CitationStatus,
     EvidenceTier,
     InvalidReason,
     ModelRole,
     Outcome,
 )
 
+from sc_sentry import triage
 from sc_sentry.audit import Answer
 from sc_sentry.briefs import BRIEFS
 from sc_sentry.checks import CHECKS
 from sc_sentry.classes import VulnClass
 from sc_sentry.contract_assay import slices
-from sc_sentry.contract_assay.detectors import SENTRY_DETECTORS, Slippage
+from sc_sentry.contract_assay.detectors import (
+    SENTRY_DETECTORS,
+    STATIC_DETECTORS,
+    AccessControl,
+    Slippage,
+    StaticAccessControl,
+)
 from sc_sentry.task import Proposal
 
 from .test_core import VAULT, a_proposal
@@ -95,6 +103,7 @@ def caller(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ModuleType:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("RLM_MAIN_MODEL", "main-m")
     monkeypatch.setenv("RLM_SUB_MODEL", "sub-m")
+    monkeypatch.setenv("SC_SENTRY_MODE", "explore")
     module = importlib.import_module("sc_sentry.contract_assay.caller")
     module = importlib.reload(module)
     monkeypatch.setattr(module, "configure_once", lambda **_: None)
@@ -240,6 +249,119 @@ class TestTheCaller:
         assert [(u.calls, u.tokens) for u in run.models] == [(3, 500)]
 
 
+@pytest.fixture
+def triage_caller(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ModuleType:
+    """The caller in its default mode, where the model reviews the harness's candidate functions."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("RLM_MAIN_MODEL", "main-m")
+    monkeypatch.setenv("SC_SENTRY_MODE", "triage")
+    module = importlib.reload(importlib.import_module("sc_sentry.contract_assay.caller"))
+    monkeypatch.setattr(module, "configure_once", lambda **_: None)
+    return module
+
+
+def a_verdict(number: int, *, instance: bool, confidence: int = 4) -> triage.Verdict:
+    return triage.Verdict(id=number, instance=instance, confidence=confidence, reasoning="because")
+
+
+class TestTheTriageCaller:
+    def test_the_models_pick_comes_first_and_the_run_names_what_it_cost(
+        self, triage_caller: ModuleType, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Two candidate functions in static order (`set`, then `sell`). The model says the second
+        # is the instance and the first is not, so `sell` leads and `set` stays below it.
+        seen: list[str] = []
+
+        def fake(definition: str, table: str, *, count: int) -> triage.TriageAnswer:
+            seen.append(table)
+            return triage.TriageAnswer(
+                verdicts={
+                    1: a_verdict(1, instance=False),
+                    2: a_verdict(2, instance=True, confidence=5),
+                },
+                tokens=900,
+                seconds=2.0,
+                usage=(("main-m", 1, 900),),
+            )
+
+        monkeypatch.setattr(triage, "ask", fake)
+        [run] = run_submission([AccessControl()], [a_unit()], model=triage_caller.call)
+        assert [f.finding.locator.function for f in run.findings] == ["sell", "set"]
+        assert [f.finding.score for f in run.findings] == [2.0, 1.0]
+        assert all(f.status is CitationStatus.VERIFIED for f in run.findings)
+        assert [(u.calls, u.tokens) for u in run.models] == [(1, 900)]
+        # One call for the class, and the candidates reach the model as numbered code.
+        assert len(seen) == 1 and "#1 " in seen[0] and "#2 " in seen[0]
+
+    def test_a_failed_call_costs_the_judgement_and_not_the_findings(
+        self,
+        triage_caller: ModuleType,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        failed = triage.TriageAnswer(
+            verdicts={},
+            tokens=400,
+            seconds=1.0,
+            failed="ValueError: the reply was not JSON",
+            usage=(("main-m", 2, 400),),
+        )
+        monkeypatch.setattr(triage, "ask", lambda definition, table, *, count: failed)
+        [run] = run_submission([AccessControl()], [a_unit()], model=triage_caller.call)
+        assert [f.finding.locator.function for f in run.findings] == ["set", "sell"]
+        assert [(u.calls, u.tokens) for u in run.models] == [(2, 400)]
+        assert "triage failed (ValueError: the reply was not JSON)" in capsys.readouterr().err
+
+    def test_a_class_with_no_candidates_is_never_asked(
+        self, triage_caller: ModuleType, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def never(definition: str, table: str, *, count: int) -> triage.TriageAnswer:
+            raise AssertionError("a class with no candidates must not reach the model")
+
+        monkeypatch.setattr(triage, "ask", never)
+        setter = "contract E {\n    uint256 x;\n    function f() external pure {\n    }\n}\n"
+        unit = SourceUnit(source_id="commit:e@aaa:src/E.sol", path="src/E.sol", source=setter)
+        [run] = run_submission([Slippage()], [unit], model=triage_caller.call)
+        assert run.outcome is Outcome.CLEAN
+
+
+class TestTheStaticDetectors:
+    """The control group: the same checks with no model, so `contract-assay run` needs no caller."""
+
+    def test_there_is_one_per_class_and_each_resolves_through_the_real_loader(self) -> None:
+        loaded = []
+        for path in sorted((MANIFESTS / "static").glob("*.manifest.json")):
+            manifest = SubmissionManifest.model_validate_json(path.read_text(encoding="utf-8"))
+            detector = load_detector(manifest, search_path=path.parent)
+            assert detector.class_id.value == path.name.removesuffix(".manifest.json")
+            loaded.append(type(detector))
+        assert set(loaded) == set(STATIC_DETECTORS)
+
+    def test_they_ask_for_no_model_and_assert_their_candidates_in_the_harnesss_order(self) -> None:
+        # No `model=`: a detector that asked for one would come back `model_not_permitted`.
+        [run] = run_submission([StaticAccessControl()], [a_unit()])
+        assert run.outcome is Outcome.VULNERABLE and run.produced_without_a_model
+        assert [f.finding.locator.function for f in run.findings] == ["set", "sell"]
+        assert [f.finding.score for f in run.findings] == [2.0, 1.0]
+        assert all(f.status is CitationStatus.VERIFIED for f in run.findings)
+
+    def test_the_sweep_needs_no_model_in_static_mode(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from sc_sentry.contract_assay import run
+
+        monkeypatch.chdir(tmp_path)  # never the repository's own .env
+        monkeypatch.delenv("RLM_MAIN_MODEL", raising=False)
+        records, root = TestTheSlice().a_corpus(tmp_path, {})
+        out = tmp_path / "runs.jsonl"
+        argv = ["--mode", "static", "--units", "0", "--out", str(out)]
+        argv += ["--corpus", str(records), "--source-root", str(root)]
+        assert run.main(argv) == 0
+        written = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
+        assert {r["class_id"] for r in written} >= {"slippage", "reentrancy"}
+        assert all(r["models"] == [] for r in written)
+
+
 class TestTheSlice:
     def a_corpus(self, tmp_path: Path, files: dict[str, str]) -> tuple[Path, Path]:
         """Two units and two classes, one record each; `files` is what is on disk for each."""
@@ -311,6 +433,8 @@ class TestTheSweep:
         out = tmp_path / "runs.jsonl"
         code = run.main(
             [
+                "--mode",
+                "explore",
                 "--units",
                 "0",
                 "--only",

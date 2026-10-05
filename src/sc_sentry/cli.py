@@ -41,11 +41,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     audit.add_argument(
         "--mode",
-        choices=("explore", "triage", "static"),
-        default="explore",
-        help="explore: a planner investigates with tools. triage: the model decides which of "
-        "the harness's candidate functions are instances. static: no model, the candidates "
-        "themselves, likeliest first (the control group, and it needs no .env).",
+        choices=("triage", "explore", "static"),
+        default="triage",
+        help="triage (default): the model decides which of the harness's candidate functions "
+        "are instances. explore: a planner investigates with tools, at ten to forty times the "
+        "cost. static: no model, the candidates themselves, likeliest first (the control "
+        "group, and it needs no .env).",
     )
     audit.add_argument(
         "--limit",
