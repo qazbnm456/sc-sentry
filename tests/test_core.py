@@ -169,6 +169,44 @@ class TestTheAsk:
         assert [p.confidence for p in answer.proposals] == [5, 3, 2]
 
 
+class TestWhatTheAskCost:
+    def test_usage_is_kept_per_model_with_its_calls_and_tokens(self) -> None:
+        usage = audit_module.usage_of(
+            {
+                "openai/main": [
+                    {"total_tokens": 100},
+                    {"prompt_tokens": 20, "completion_tokens": 5},
+                ],
+                "openai/sub": [{"total_tokens": 7}],
+            }
+        )
+        assert usage == (("openai/main", 2, 125), ("openai/sub", 1, 7))
+
+    def test_a_failed_planner_still_reports_what_it_spent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A cost that counted only the runs that succeeded would let a sweep that kept
+        # failing report that it had cost nothing.
+        import contextlib
+
+        import dspy
+
+        class Tracker:
+            def __init__(self) -> None:
+                self.usage_data = {"m": [{"total_tokens": 321}]}
+
+        class Task:
+            def run(self, **_: Any) -> None:
+                raise RuntimeError("the endpoint went away")
+
+        monkeypatch.setattr(dspy, "track_usage", lambda: contextlib.nullcontext(Tracker()))
+        monkeypatch.setattr(audit_module, "audit_task", lambda source, tools: Task())
+        monkeypatch.setattr(audit_module, "tools_for", lambda source: [])
+        answer = audit_module.ask(VAULT, BRIEFS[VulnClass.SLIPPAGE])
+        assert answer.failed == "RuntimeError: the endpoint went away"
+        assert (answer.tokens, answer.usage) == (321, (("m", 1, 321),))
+
+
 class TestTheCommand:
     def test_classes_may_be_comma_separated_and_repeated(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any

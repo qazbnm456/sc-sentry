@@ -18,6 +18,7 @@ CI runs exactly this, without contract-assay installed (its repository is privat
 
 - **The core never imports `contract_assay`.** Only the `sc_sentry.contract_assay` subpackage may; a test asserts it, and CI would fail on the import anyway.
 - **The adapter adds no judgement.** Its detectors restate the core class checks; a change to a check changes both, identically.
+- **The adapter has no loop of its own.** `caller.py` supplies a `ModelCaller` and the benchmark's `run_submission` does the rest: reading units, running detectors, verifying citations and writing runs. A second copy of that loop drifts from the benchmark's, which is how the first one came to read files without checking their digests.
 - **The Solidity parser is adapted from contract-assay's evidence parser.** A parse bug found in one is likely in the other; check both.
 - **The model endpoint and key are read from `.env` in the working directory** (`sc_sentry/dotenv.py`; an exported variable wins), which is outside git. Tests that call a command `chdir` to a temporary directory so they never read the real one. Never print it, echo it, or put its values in a test, a log or a commit.
 

@@ -6,53 +6,42 @@ units of a corpus whose largest class holds 200 of 478 records is a measurement
 of that one class wearing the corpus's name.
 
 `slice_of` covers every class once before covering any class twice, and is
-deterministic, so two runs of the loop compare.
+deterministic, so two runs of the loop compare. The units are read by the
+benchmark's own `units_from`, which checks each file against the digest its record
+pins, so a checkout that has drifted shortens the slice and says so instead of
+scoring a different text than the one the records locate.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
 
 from contract_assay.corpus.records import load_records
+from contract_assay.harness import SourceUnit, units_from
 
 
-@dataclass(frozen=True, slots=True)
-class Unit:
-    """One source file, already read. `path` is the pin's path, not a local one."""
+def slice_of(records_dir: Path, source_root: Path, want: int) -> tuple[list[SourceUnit], list[str]]:
+    """Round-robin over the classes, and the units that could not be read.
 
-    source_id: str
-    path: str
-    source: str
-
-
-def slice_of(records_dir: Path, source_root: Path, want: int) -> list[Unit]:
-    """Round-robin over the classes. `want=0` means every unit that is readable.
-
-    A record whose file is absent under `source_root` is skipped rather than
-    raised on: the checkout is fetched separately and may be partial, and a
-    partial checkout should shorten the slice rather than end the run. What it
-    must not do is silently shorten it -- the caller prints how many units it
-    got, and `contract-assay score` states how many of the corpus's units the
-    figures cover.
+    `want=0` means every unit that is readable. A unit absent from the checkout, or
+    whose file does not match its pinned digest, is returned in the second list and
+    takes no slot: the checkout is fetched separately and may be partial, and a
+    partial checkout should shorten the slice. What it must not do is shorten it
+    silently, so the caller says how many it got and how many it could not read.
     """
-    records = load_records(records_dir)
+    positives = [
+        record
+        for record in sorted(load_records(records_dir), key=lambda r: r.record_id)
+        if record.is_positive and record.locator is not None
+    ]
+    units, missing = units_from(positives, source_root)
+    available = {unit.source_id: unit for unit in units}
     by_class: dict[str, list[str]] = defaultdict(list)
-    units: dict[str, Unit] = {}
-    for record in sorted(records, key=lambda r: r.record_id):
-        if not (record.is_positive and record.locator is not None):
-            continue
-        path = source_root / record.pin.path
-        if not path.is_file():
-            continue
+    for record in positives:
         source_id = record.pin.source_id
-        if source_id not in units:
-            units[source_id] = Unit(
-                source_id=source_id,
-                path=record.pin.path,
-                source=path.read_text(encoding="utf-8"),
-            )
+        if source_id not in available:
+            continue
         for cls in record.classes:
             if source_id not in by_class[cls.value]:
                 by_class[cls.value].append(source_id)
@@ -71,4 +60,4 @@ def slice_of(records_dir: Path, source_root: Path, want: int) -> list[Unit]:
         if not added:
             break
         depth += 1
-    return [units[source_id] for source_id in chosen]
+    return [available[source_id] for source_id in chosen], missing

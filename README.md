@@ -102,35 +102,42 @@ figure came from; a figure without its run is not reproducible.
 
 ## Scoring it (optional): the contract-assay adapter
 
-`sc_sentry.contract_assay` adapts the harness to the [contract-assay][ca] benchmark:
-the same checks exposed as its `Detector`s, a sweep over its corpus that writes
-the runs file it scores, and a scoring front-end. The harness never imports it.
+`sc_sentry.contract_assay` is how the [contract-assay][ca] benchmark measures this harness. It is an adapter and not a second harness. `detectors.py` is the harness's checks as the benchmark's `Detector`s: `evidence()` is the candidate sites, `plan()` is the class's brief, or nothing when the unit has no candidates, which costs no model call, and `verdict()` is the class definition's rejections. `caller.py` is the one function the benchmark calls when a detector asks for a model, and it runs the same planner `sc-sentry audit` runs. The harness never imports any of it, and nothing in it loops over a corpus, because the benchmark's own runner does that.
 
 [ca]: https://github.com/qazbnm456/contract-assay
 
-contract-assay is not on PyPI, and its repository is private for now: you need
-read access to it to install the extra. With that:
+contract-assay is not on PyPI, and its repository is private for now: you need read access to it to install the extra. With that, follow the benchmark's README ("Where to start"), which is the path for any harness of your own. For this one it is:
 
 ```bash
 git clone https://github.com/qazbnm456/contract-assay
 pip install -e ./contract-assay && pip install -e "./sc-sentry[contract-assay]"
-
 contract-assay fetch contract-assay/corpus/records --source-root checkout
+
+args=(); for m in sc-sentry/src/sc_sentry/contract_assay/manifests/*.manifest.json; do args+=(--manifest "$m"); done
+contract-assay run "${args[@]}" \
+    --records contract-assay/corpus/records --source-root checkout \
+    --model-caller sc_sentry.contract_assay.caller:call --limit 5 --out results/run.jsonl
+
+contract-assay score results/run.jsonl --records contract-assay/corpus/records \
+    --source-root checkout --submission-id sc-sentry --out results/score.json
+```
+
+There is one manifest for each of the eight classes, because a manifest names one detector. Leave a class out and the score marks it `nothing_ran` with a recall of 0.0, which is the benchmark saying nobody looked. The model and the endpoint come from `.env` in the directory you run it in, and the caller reads them when it is imported, so a missing `RLM_MAIN_MODEL` ends the command with one line. `SC_SENTRY_MAX_ITERATIONS` (6) and `SC_SENTRY_CACHE=1` set the planner's turn limit and the cache, and `--max-calls` reaches the planner through the benchmark.
+
+**What a class costs here is more than a benchmark round allows.** Each class a unit has candidates for is one planner run, and on the public corpus a run has taken 56,000 to 97,000 tokens, 35 to 42 seconds and 5 to 7 model calls against `qwen36_35b_a3b` (two runs, 2026-10-06). The benchmark's defaults for a whole unit are 4 calls, 20,000 tokens and 30 seconds. Nothing here enforces them, and the adapter prints a line when a class goes over. A host that does enforce them would refuse these runs, so the figures from this path are a measure of the harness with its budget unbounded.
+
+For iterating on the harness there is a convenience over the same runner:
+
+```bash
 sc-sentry-contract-assay run --units 12 --out results/run.jsonl \
     --corpus contract-assay/corpus/records --source-root checkout
 sc-sentry-contract-assay score results/run.jsonl \
     --corpus contract-assay/corpus/records --source-root checkout
 ```
 
-The adapter adds no judgement of its own -- `evidence()` is the harness's
-candidates and `verdict()` its rejections -- so a benchmark figure measures
-the same harness `sc-sentry audit` runs. `run` also takes `--units N` (0 for
-every readable unit), `--only CLASS`, `--predictions-per-unit` (default 3), the
-same `--max-*` limits as `audit`, and `--cache`. What it measured:
+`run` takes a stratified slice, which covers every class once before any class twice, because the first 12 units of a corpus whose largest class holds 200 of 478 records measure that one class. It also takes `--units 0` for every readable unit, `--only CLASS`, `--predictions-per-unit` (the benchmark's default, 9), the same `--max-*` limits as `audit`, and `--cache`. `score` prints the per-class table that the figures below come from.
 
-
-`lab-v2`, the best run to date: 12 units, 8 classes, 96 runs, 64 model calls,
-2,365,095 tokens.
+`lab-v2`, the best run before the adapter moved onto the benchmark's own runner: 12 units, 8 classes, 96 runs, 64 planner runs, 2,365,095 tokens, at a cap of 3 findings for each unit and class. It counted one model call for each planner run, which the harness's usage tracker now shows to be low, since one class on one unit has taken 5 to 7, so read its call count as a floor.
 
 | | |
 |---|---|

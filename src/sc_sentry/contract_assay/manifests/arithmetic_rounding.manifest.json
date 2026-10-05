@@ -1,0 +1,6 @@
+{
+  "submission_id": "sc-sentry",
+  "api_version": "1.1",
+  "entry_point": "sc_sentry.contract_assay.detectors:ArithmeticRounding",
+  "author": "Boik Su"
+}

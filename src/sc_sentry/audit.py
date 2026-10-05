@@ -23,8 +23,9 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 from sc_sentry.briefs import BRIEFS
 from sc_sentry.checks import CHECKS, parse
@@ -32,7 +33,16 @@ from sc_sentry.classes import VulnClass
 from sc_sentry.sites import tools_for
 from sc_sentry.task import Proposal, Proposals, audit_task
 
-__all__ = ["Answer", "ClassResult", "Finding", "Report", "ask", "audit", "configure_once"]
+__all__ = [
+    "Answer",
+    "ClassResult",
+    "Finding",
+    "Report",
+    "ask",
+    "audit",
+    "configure_once",
+    "usage_of",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +53,14 @@ class Answer:
     tokens: int
     seconds: float
     failed: str | None = None
+    usage: tuple[tuple[str, int, int], ...] = ()
+    """Each language model the run reached, as `(model, calls, tokens)`.
+
+    `tokens` is their sum. The rows are kept apart because a planner and its
+    sub-model are different models with different costs, and a figure that adds
+    them cannot say which one a change made cheaper. A provider that reports no
+    usage leaves this empty, and `tokens` is then zero.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,33 +162,60 @@ def configure_once(
     _CONFIGURED = True
 
 
+def usage_of(
+    usage_data: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> tuple[tuple[str, int, int], ...]:
+    """dspy's usage tracker as `(model, calls, tokens)` rows."""
+    return tuple(
+        (
+            str(model),
+            len(calls),
+            sum(
+                int(call.get("total_tokens") or 0)
+                or (int(call.get("prompt_tokens") or 0) + int(call.get("completion_tokens") or 0))
+                for call in calls
+            ),
+        )
+        for model, calls in usage_data.items()
+    )
+
+
 def ask(source: str, brief: str) -> Answer:
     """One planner run for one class on one file. Never raises."""
     import dspy
 
     task = audit_task(source, tools_for(source))
     started = time.monotonic()
-    tokens = 0
+    usage_data: Mapping[str, Sequence[Mapping[str, Any]]] = {}
     try:
         with dspy.track_usage() as tracker:
-            result = task.run(brief=brief, source=source)
+            try:
+                result = task.run(brief=brief, source=source)
+            finally:
+                # Read on failure as well. A call that raised was still made, and what
+                # it spent is spent: a cost that counted only successes would let a
+                # sweep that kept failing report that it cost nothing.
+                usage_data = dict(getattr(tracker, "usage_data", {}))
     except Exception as failure:
+        usage = usage_of(usage_data)
         return Answer(
             proposals=(),
-            tokens=0,
+            tokens=sum(tokens for _, _, tokens in usage),
             seconds=time.monotonic() - started,
             failed=f"{type(failure).__name__}: {failure}",
+            usage=usage,
         )
-    for calls in getattr(tracker, "usage_data", {}).values():
-        for call in calls:
-            tokens += int(call.get("total_tokens") or 0) or (
-                int(call.get("prompt_tokens") or 0) + int(call.get("completion_tokens") or 0)
-            )
+    usage = usage_of(usage_data)
     proposals = (
         result.findings if isinstance(result, Proposals) else getattr(result, "findings", [])
     )
     ordered = sorted(proposals, key=lambda p: -getattr(p, "confidence", 3))
-    return Answer(proposals=tuple(ordered), tokens=tokens, seconds=time.monotonic() - started)
+    return Answer(
+        proposals=tuple(ordered),
+        tokens=sum(tokens for _, _, tokens in usage),
+        seconds=time.monotonic() - started,
+        usage=usage,
+    )
 
 
 def audit(source: str, path: str, classes: Iterable[VulnClass] | None = None) -> Report:

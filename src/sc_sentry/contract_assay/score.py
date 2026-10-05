@@ -18,7 +18,7 @@ from collections import Counter
 from pathlib import Path
 
 from contract_assay.corpus.records import load_records
-from contract_assay.models import DetectorRun, Outcome
+from contract_assay.models import DEFAULT_PREDICTIONS_PER_UNIT, DetectorRun, Outcome
 from contract_assay.report.scoring import MatchStrength, score
 
 
@@ -39,7 +39,13 @@ def main(argv: list[str] | None = None) -> int:
         "A run scored against a different checkout than it audited is scored "
         "against different text, and every quote will fail to verify.",
     )
-    parser.add_argument("--predictions-per-unit", type=int, default=3)
+    parser.add_argument(
+        "--predictions-per-unit",
+        type=int,
+        default=DEFAULT_PREDICTIONS_PER_UNIT,
+        help="The cap `contract-assay score` counts by default, so a figure here and one "
+        "from `contract-assay score` over the same runs agree.",
+    )
     args = parser.parse_args(argv)
 
     root = args.source_root
