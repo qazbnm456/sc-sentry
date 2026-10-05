@@ -3,9 +3,8 @@
 `contract-assay run` loops over the corpus and the detectors, and when a detector's
 `plan()` returns an instruction it calls `call` below. `plan()` returns `None` for a
 class with no candidate sites in the unit, so for those the harness is never asked
-and the run is a deterministic `clean`. The harness is a planner for one class on one
-file, which is the shape `call_per_class` has in the benchmark's walkthrough, so each
-detector gets its own call with its own class's brief.
+and the run is a deterministic `clean`. Each detector gets its own call, for its own
+class and file, which is the shape `call_per_class` has in the benchmark's walkthrough.
 
     contract-assay run \\
         --manifest src/sc_sentry/contract_assay/manifests/access_control.manifest.json \\
@@ -13,11 +12,18 @@ detector gets its own call with its own class's brief.
         --records contract-assay/corpus/records --source-root checkout \\
         --model-caller sc_sentry.contract_assay.caller:call --limit 5 --out run.jsonl
 
+What a call does is `SC_SENTRY_MODE`. `triage`, the default, sends the class's candidate
+functions to the model in one call and keeps the citations the code made. `explore` runs
+the planner with tools instead, which is ten to forty times the tokens. The manifests
+under `manifests/static/` name detectors that ask for no model at all, so they run with
+no caller and no `.env`.
+
 The model comes from `.env` in the working directory or the environment, and it is
 read when this module is imported, so a missing `RLM_MAIN_MODEL` ends the command with
 one line instead of failing every unit. The limits that `rlm-harness` takes are set
 once, from the first call: `--max-calls` through `ctx.limits`, and the rest from
-`SC_SENTRY_MAX_ITERATIONS` (6) and `SC_SENTRY_CACHE=1`. The per-call generation cap is
+`SC_SENTRY_MAX_ITERATIONS` (6) and `SC_SENTRY_CACHE=1`, and `SC_SENTRY_CANDIDATES` (20)
+is how many candidate functions triage sends. The per-call generation cap is
 `RLM_MAX_TOKENS`, which is not the benchmark's `--max-tokens`: that one is a budget for
 a whole unit.
 """

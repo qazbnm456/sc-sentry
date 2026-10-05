@@ -221,7 +221,7 @@ def ask(source: str, brief: str) -> Answer:
     )
 
 
-MODES = ("explore", "triage", "static")
+MODES = ("triage", "explore", "static")
 
 DEFAULT_STATIC_LIMIT = 9
 """How many findings a class keeps per file without a model: the benchmark's default cap."""
@@ -232,7 +232,7 @@ def audit(
     path: str,
     classes: Iterable[VulnClass] | None = None,
     *,
-    mode: str = "explore",
+    mode: str = "triage",
     limit: int | None = DEFAULT_STATIC_LIMIT,
     sent: int = 20,
 ) -> Report:

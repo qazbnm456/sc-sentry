@@ -84,14 +84,16 @@ class TestTheAudit:
             return Answer(proposals=(), tokens=0, seconds=0.0)
 
         monkeypatch.setattr(audit_module, "ask", ask)
-        report = audit(VAULT, "Vault.sol", [VulnClass.SLIPPAGE, VulnClass.INSECURE_RANDOMNESS])
+        report = audit(
+            VAULT, "Vault.sol", [VulnClass.SLIPPAGE, VulnClass.INSECURE_RANDOMNESS], mode="explore"
+        )
         by_class = {r.vuln: r for r in report.results}
         assert by_class[VulnClass.SLIPPAGE].asked
         # `block.timestamp` is a chain-state read, so randomness has a candidate
         # too; the class asked about with none is checked below.
         assert asked == [BRIEFS[VulnClass.SLIPPAGE], BRIEFS[VulnClass.INSECURE_RANDOMNESS]]
         # No price or reserve is read anywhere in VAULT: nothing to ask about.
-        report = audit(VAULT, "Vault.sol", [VulnClass.ORACLE_INTEGRITY])
+        report = audit(VAULT, "Vault.sol", [VulnClass.ORACLE_INTEGRITY], mode="explore")
         assert (report.results[0].candidates, report.results[0].asked) == (0, False)
         assert len(asked) == 2
 
@@ -106,7 +108,7 @@ class TestTheAudit:
             )
 
         monkeypatch.setattr(audit_module, "ask", ask)
-        [result] = audit(VAULT, "Vault.sol", [VulnClass.SLIPPAGE]).results
+        [result] = audit(VAULT, "Vault.sol", [VulnClass.SLIPPAGE], mode="explore").results
         assert [(f.start_line, f.confidence, f.rejected) for f in result.findings] == [
             (5, 5, None),
             (9, 2, "exchange_call_in_this_function"),
@@ -124,7 +126,7 @@ class TestTheReport:
                 seconds=1.0,
             ),
         )
-        return audit(VAULT, "Vault.sol", [VulnClass.SLIPPAGE])
+        return audit(VAULT, "Vault.sol", [VulnClass.SLIPPAGE], mode="explore")
 
     def test_sarif_suppresses_a_rejected_finding_rather_than_dropping_it(
         self, monkeypatch: pytest.MonkeyPatch
