@@ -169,6 +169,87 @@ class TestTheAsk:
         assert [p.confidence for p in answer.proposals] == [5, 3, 2]
 
 
+class TestTheFindingsNeedNoModel:
+    """`--static`: the candidates, one per function, as the control group for the model."""
+
+    def test_a_function_with_several_candidates_is_one_entry(self) -> None:
+        # `sell` holds the call and the write after it, and a cap counts findings, so the
+        # function must cost one.
+        [entry] = CHECKS[VulnClass.REENTRANCY].functions(VAULT)
+        assert (entry.contract, entry.function) == ("Vault", "sell")
+        assert len(entry.candidates) > 1
+        assert {c.predicate for c in entry.candidates} == {
+            "external_call",
+            "state_write_after_an_external_call",
+        }
+        assert entry.best is entry.candidates[0]  # the earliest, with no priority
+
+    def test_priority_chooses_the_site_that_stands_for_the_function(self) -> None:
+        from sc_sentry.checks import group_by_function
+
+        candidates = CHECKS[VulnClass.REENTRANCY].find(VAULT)
+        [entry] = group_by_function(
+            candidates, lambda c: 1.0 if c.predicate.startswith("state_write") else 0.0
+        )
+        assert entry.best.predicate == "state_write_after_an_external_call"
+
+    def test_functions_come_out_likeliest_first(self) -> None:
+        from sc_sentry.checks import group_by_function
+
+        candidates = CHECKS[VulnClass.ACCESS_CONTROL].find(VAULT)
+        assert [e.function for e in group_by_function(candidates)] == ["sell", "set"]
+        ranked = group_by_function(
+            candidates, lambda c: 1.0 if c.site.host.function == "set" else 0.0
+        )
+        assert [e.function for e in ranked] == ["set", "sell"]
+
+    def test_a_finding_quotes_whole_lines_and_says_no_model_reviewed_it(self) -> None:
+        from sc_sentry.static import static_findings
+
+        [finding] = static_findings(VulnClass.SLIPPAGE, VAULT, "src/Vault.sol")
+        assert finding.origin == "static"
+        assert finding.quote == VAULT.splitlines()[finding.start_line - 1]
+        assert (finding.contract, finding.function) == ("Vault", "sell")
+        assert "not reviewed by a model" in finding.reasoning
+
+    def test_the_limit_keeps_the_first_functions(self) -> None:
+        from sc_sentry.static import static_findings
+
+        both = static_findings(VulnClass.ACCESS_CONTROL, VAULT, "src/Vault.sol")
+        one = static_findings(VulnClass.ACCESS_CONTROL, VAULT, "src/Vault.sol", limit=1)
+        assert len(both) == 2 and one == both[:1]
+
+    def test_a_static_audit_never_reaches_the_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def never(source: str, brief: str) -> Answer:
+            raise AssertionError("--static must not ask a model")
+
+        monkeypatch.setattr(audit_module, "ask", never)
+        report = audit(VAULT, "src/Vault.sol", [VulnClass.SLIPPAGE], static=True)
+        [result] = report.results
+        assert (result.asked, result.candidates, len(result.findings)) == (False, 1, 1)
+
+    def test_the_command_needs_no_model_for_it(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+    ) -> None:
+        import json
+
+        from sc_sentry import cli
+
+        monkeypatch.chdir(tmp_path)  # never the repository's own .env
+        monkeypatch.delenv("RLM_MAIN_MODEL", raising=False)
+        target = tmp_path / "Vault.sol"
+        target.write_text(VAULT)
+        out = tmp_path / "r.json"
+        assert (
+            cli.main(["audit", str(target), "--static", "--class", "slippage", "--out", str(out)])
+            == 0
+        )
+        [file] = json.loads(out.read_text())["files"]
+        assert [f["origin"] for f in file["classes"][0]["findings"]] == ["static"]
+        # Without --static the same command still refuses to start with no model named.
+        assert cli.main(["audit", str(target), "--class", "slippage"]) == 2
+
+
 class TestWhatTheAskCost:
     def test_usage_is_kept_per_model_with_its_calls_and_tokens(self) -> None:
         usage = audit_module.usage_of(
@@ -220,7 +301,7 @@ class TestTheCommand:
         monkeypatch.setattr(
             audit_module,
             "audit",
-            lambda source, path, classes: (
+            lambda source, path, classes, **_: (
                 seen.append(classes) or audit_module.Report(file=path, model="m")
             ),
         )
@@ -272,7 +353,7 @@ class TestTheEnvironment:
         monkeypatch.setattr(
             audit_module,
             "audit",
-            lambda source, path, classes: audit_module.Report(file=path, model="m"),
+            lambda source, path, classes, **_: audit_module.Report(file=path, model="m"),
         )
         assert cli.main(["audit", str(target), "--out", str(tmp_path / "r.json")]) == 0
 
@@ -300,7 +381,7 @@ class TestTheEnvironment:
         monkeypatch.setattr(
             audit_module,
             "audit",
-            lambda source, path, classes: audit_module.Report(file=path, model="m"),
+            lambda source, path, classes, **_: audit_module.Report(file=path, model="m"),
         )
         target = tmp_path / "Vault.sol"
         target.write_text(VAULT)

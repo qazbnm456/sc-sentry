@@ -39,6 +39,7 @@ def _finding(finding: Finding) -> dict[str, Any]:
         "reasoning": finding.reasoning,
         "confidence": finding.confidence,
         "rejected": finding.rejected,
+        "origin": finding.origin,
     }
 
 

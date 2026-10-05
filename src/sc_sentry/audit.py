@@ -79,6 +79,9 @@ class Finding:
     rejected: str | None = None
     """What the class definition did not find established at these lines, or
     `None` when the finding stands."""
+    origin: str = "model"
+    """`static` for a candidate the harness cited without a model, `model` for one a
+    planner proposed. Whoever reads a report should be able to tell which they hold."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,8 +221,23 @@ def ask(source: str, brief: str) -> Answer:
     )
 
 
-def audit(source: str, path: str, classes: Iterable[VulnClass] | None = None) -> Report:
-    """Audit one file for each class asked (every class by default)."""
+DEFAULT_STATIC_LIMIT = 9
+"""How many findings a class keeps per file without a model: the benchmark's default cap."""
+
+
+def audit(
+    source: str,
+    path: str,
+    classes: Iterable[VulnClass] | None = None,
+    *,
+    static: bool = False,
+    limit: int | None = DEFAULT_STATIC_LIMIT,
+) -> Report:
+    """Audit one file for each class asked (every class by default).
+
+    `static=True` asks no model: each class's candidate functions come back as findings,
+    likeliest first and at most `limit` of them, each marked `origin="static"`.
+    """
     wanted = list(classes) if classes is not None else list(VulnClass)
     parsed = parse(source)
     results: list[ClassResult] = []
@@ -228,6 +246,18 @@ def audit(source: str, path: str, classes: Iterable[VulnClass] | None = None) ->
         candidates = check.find(source)
         if not candidates:
             results.append(ClassResult(vuln=vuln, candidates=0, asked=False))
+            continue
+        if static:
+            from sc_sentry.static import static_findings
+
+            results.append(
+                ClassResult(
+                    vuln=vuln,
+                    candidates=len(candidates),
+                    asked=False,
+                    findings=static_findings(vuln, source, path, limit=limit),
+                )
+            )
             continue
         answer = ask(source, BRIEFS[vuln])
         spans = [candidate.span for candidate in candidates]

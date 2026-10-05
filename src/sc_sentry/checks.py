@@ -22,7 +22,7 @@ from functools import lru_cache
 from sc_sentry.classes import VulnClass
 from sc_sentry.solidity import Site, Syntax
 
-__all__ = ["CHECKS", "Candidate", "Check", "Span", "parse"]
+__all__ = ["CHECKS", "Candidate", "CandidateFunction", "Check", "Span", "parse"]
 
 Detail = Mapping[str, str | int | float | bool]
 
@@ -90,21 +90,65 @@ def _same_function(parsed: Syntax | None, spans: Sequence[Span], start: int) -> 
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateFunction:
+    """The candidates of one class that sit in one function, and the one worth citing.
+
+    The benchmark locates a defect to a function, and a cap counts findings, so a
+    function holding six candidates should cost one finding and not six. `best` is the
+    candidate that stands for the function: the one `priority` ranks highest, the
+    earliest on a tie.
+    """
+
+    contract: str | None
+    function: str | None
+    best: Candidate
+    candidates: tuple[Candidate, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Check:
     """One class: how to find its candidates, and what rules a citation out.
 
     `rejects` returns the name of what was not established at the citation, or
-    `None` when the citation stands.
+    `None` when the citation stands. `priority`, when a class has one, says how likely a
+    candidate is to be an instance, higher first; without it candidates keep source order.
     """
 
     vuln: VulnClass
     summary: str
     candidates: Callable[[Syntax], list[Candidate]]
     rejects: Callable[[Syntax | None, Sequence[Span], int, int], str | None]
+    priority: Callable[[Candidate], float] | None = None
 
     def find(self, source: str) -> list[Candidate]:
         parsed = parse(source)
         return [] if parsed is None else self.candidates(parsed)
+
+    def functions(self, source: str) -> list[CandidateFunction]:
+        """The candidates grouped by function, the likeliest function first."""
+        return group_by_function(self.find(source), self.priority)
+
+
+def group_by_function(
+    candidates: Sequence[Candidate], priority: Callable[[Candidate], float] | None = None
+) -> list[CandidateFunction]:
+    """One entry per `(contract, function)`, ordered by priority and then by position."""
+    rank = priority or (lambda _: 0.0)
+    groups: dict[tuple[str | None, str | None], list[Candidate]] = {}
+    for candidate in candidates:
+        host = candidate.site.host
+        groups.setdefault((host.contract, host.function), []).append(candidate)
+    entries = []
+    for (contract, function), members in groups.items():
+        best = min(members, key=lambda m: (-rank(m), m.site.start_line))
+        entries.append(
+            CandidateFunction(contract, function, best, tuple(sorted(members, key=_by_line)))
+        )
+    return sorted(entries, key=lambda e: (-rank(e.best), e.best.site.start_line))
+
+
+def _by_line(candidate: Candidate) -> int:
+    return candidate.site.start_line
 
 
 # --- access control -------------------------------------------------------

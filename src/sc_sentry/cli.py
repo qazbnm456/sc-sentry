@@ -39,6 +39,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Per-call generation cap. Omitted, RLM_MAX_TOKENS if set, else 32768.",
     )
+    audit.add_argument(
+        "--static",
+        action="store_true",
+        help="Ask no model: report each class's candidate functions, likeliest first. The "
+        "control group for what the model adds, and it needs no .env.",
+    )
     audit.add_argument("--max-calls", type=int, default=4, help="Model calls per class. Default 4.")
     audit.add_argument(
         "--max-iterations", type=int, default=6, help="Planner turns per class. Default 6."
@@ -64,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         print(f"not a file: {', '.join(missing)}", file=sys.stderr)
         return 2
-    if not os.environ.get("RLM_MAIN_MODEL"):
+    if not args.static and not os.environ.get("RLM_MAIN_MODEL"):
         print(
             "RLM_MAIN_MODEL is not set. Copy .env.example to .env in this directory "
             "and fill it in, or export the RLM_* variables.",
@@ -76,13 +82,14 @@ def main(argv: list[str] | None = None) -> int:
     from sc_sentry.audit import configure_once
     from sc_sentry.report import to_json, to_sarif
 
-    configure_once(
-        max_tokens=args.max_tokens,
-        max_calls=args.max_calls,
-        max_iterations=args.max_iterations,
-        cache=args.cache,
-    )
-    if args.cache:
+    if not args.static:
+        configure_once(
+            max_tokens=args.max_tokens,
+            max_calls=args.max_calls,
+            max_iterations=args.max_iterations,
+            cache=args.cache,
+        )
+    if args.cache and not args.static:
         print("CACHE ON: the token counts below measure nothing", file=sys.stderr, flush=True)
     named = [part.strip() for given in args.classes or () for part in given.split(",")]
     unknown = sorted({name for name in named if name not in {c.value for c in VulnClass}})
@@ -96,9 +103,14 @@ def main(argv: list[str] | None = None) -> int:
     reports = []
     for path in args.files:
         print(f"auditing {path}", file=sys.stderr, flush=True)
-        report = run_audit(path.read_text(encoding="utf-8", errors="replace"), str(path), classes)
+        report = run_audit(
+            path.read_text(encoding="utf-8", errors="replace"),
+            str(path),
+            classes,
+            static=args.static,
+        )
         for result in report.results:
-            if result.asked:
+            if result.asked or (args.static and result.findings):
                 kept = sum(1 for f in result.findings if f.rejected is None)
                 print(
                     f"  {result.vuln.value:<24} {result.candidates:>3} candidate(s), "
