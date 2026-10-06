@@ -6,12 +6,22 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 from sc_sentry import dotenv
 from sc_sentry.classes import VulnClass
 
 __all__ = ["main"]
+
+
+def _no_retries() -> None:
+    """A host that counts calls counts a retry as one, so a failed call is not repeated."""
+    import dspy
+
+    lm = getattr(dspy.settings, "lm", None)
+    if lm is not None and hasattr(lm, "num_retries"):
+        lm.num_retries = 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -60,6 +70,27 @@ def main(argv: list[str] | None = None) -> int:
         default=20,
         help="Candidate functions sent to the model per class in triage mode. Default 20.",
     )
+    audit.add_argument(
+        "--budget-seconds",
+        type=float,
+        default=None,
+        help="triage only: finish within this many seconds of the command starting, with the "
+        "classes' calls side by side. A class that has not answered keeps its static order.",
+    )
+    audit.add_argument(
+        "--budget-calls",
+        type=int,
+        default=None,
+        help="triage only: at most this many model calls for a file, to the classes with the "
+        "most candidates. The others keep their static order.",
+    )
+    audit.add_argument(
+        "--budget-tokens",
+        type=int,
+        default=None,
+        help="triage only: at most this many tokens for a file, shared equally by the calls, "
+        "each sending as many candidates as fit.",
+    )
     audit.add_argument("--max-calls", type=int, default=4, help="Model calls per class. Default 4.")
     audit.add_argument(
         "--max-iterations", type=int, default=6, help="Planner turns per class. Default 6."
@@ -72,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("classes", help="List the classes this harness hunts.")
 
+    started = time.monotonic()
     args = parser.parse_args(argv)
     if args.command == "classes":
         from sc_sentry.checks import CHECKS
@@ -96,6 +128,14 @@ def main(argv: list[str] | None = None) -> int:
     from sc_sentry.audit import audit as run_audit
     from sc_sentry.audit import configure_once
     from sc_sentry.report import to_json, to_sarif
+    from sc_sentry.triage import Budget
+
+    budgeted = any(
+        limit is not None for limit in (args.budget_seconds, args.budget_calls, args.budget_tokens)
+    )
+    if budgeted and args.mode != "triage":
+        print("--budget-* applies to --mode triage only", file=sys.stderr)
+        return 2
 
     if args.mode != "static":
         configure_once(
@@ -104,6 +144,8 @@ def main(argv: list[str] | None = None) -> int:
             max_iterations=args.max_iterations,
             cache=args.cache,
         )
+    if budgeted:
+        _no_retries()
     if args.cache and args.mode != "static":
         print("CACHE ON: the token counts below measure nothing", file=sys.stderr, flush=True)
     named = [part.strip() for given in args.classes or () for part in given.split(",")]
@@ -125,6 +167,13 @@ def main(argv: list[str] | None = None) -> int:
             mode=args.mode,
             limit=args.limit,
             sent=args.candidates,
+            budget=Budget(
+                seconds=None
+                if args.budget_seconds is None
+                else args.budget_seconds - (time.monotonic() - started),
+                calls=args.budget_calls,
+                tokens=args.budget_tokens,
+            ),
         )
         for result in report.results:
             if result.asked or result.findings:
@@ -132,7 +181,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(
                     f"  {result.vuln.value:<24} {result.candidates:>3} candidate(s), "
                     f"{kept} finding(s) standing of {len(result.findings)}"
-                    + (f"  [failed: {result.failed}]" if result.failed else ""),
+                    + (f"  [failed: {result.failed}]" if result.failed else "")
+                    + (
+                        "  [static order: outside the budget]"
+                        if budgeted and not result.asked and result.findings
+                        else ""
+                    ),
                     file=sys.stderr,
                     flush=True,
                 )

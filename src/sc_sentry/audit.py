@@ -25,13 +25,16 @@ import os
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sc_sentry.briefs import BRIEFS
 from sc_sentry.checks import CHECKS, parse
 from sc_sentry.classes import VulnClass
 from sc_sentry.sites import tools_for
 from sc_sentry.task import Proposal, Proposals, audit_task
+
+if TYPE_CHECKING:
+    from sc_sentry.triage import Budget
 
 __all__ = [
     "Answer",
@@ -235,6 +238,7 @@ def audit(
     mode: str = "triage",
     limit: int | None = DEFAULT_STATIC_LIMIT,
     sent: int = 20,
+    budget: Budget | None = None,
 ) -> Report:
     """Audit one file for each class asked (every class by default).
 
@@ -243,16 +247,25 @@ def audit(
     - `explore`: a planner with tools investigates and cites what it finds.
     - `triage`: the harness's candidate functions go to the model in one call, which decides
       which are instances. The citations are the code's, and the report keeps every
-      candidate, the model's picks first. At most `sent` go to the model.
+      candidate, the model's picks first. At most `sent` go to the model. With a `budget`,
+      the file's classes share it: their calls run side by side, and a class the budget does not
+      cover keeps its static order.
     - `static`: no model. The candidate functions are the findings, likeliest first.
 
     Both of the last two keep at most `limit` findings for a class.
     """
     if mode not in MODES:
         raise ValueError(f"mode must be one of {', '.join(MODES)}, not {mode!r}")
+    from sc_sentry import triage
+
     wanted = list(classes) if classes is not None else list(VulnClass)
     parsed = parse(source)
     results: list[ClassResult] = []
+    budgeted = (
+        triage.run_budgeted(wanted, source, sent=sent, budget=budget)
+        if mode == "triage" and budget is not None and budget.bounded
+        else None
+    )
     for vuln in wanted:
         check = CHECKS[vuln]
         candidates = check.find(source)
@@ -260,9 +273,11 @@ def audit(
             results.append(ClassResult(vuln=vuln, candidates=0, asked=False))
             continue
         if mode == "triage":
-            from sc_sentry import triage
-
-            entries, shown, triaged = triage.run(vuln, source, path, sent=sent)
+            entries, shown, triaged = (
+                budgeted[vuln]
+                if budgeted is not None
+                else triage.run(vuln, source, path, sent=sent)
+            )
             answer_t = triaged or triage.TriageAnswer(verdicts={}, tokens=0, seconds=0.0)
             results.append(
                 ClassResult(

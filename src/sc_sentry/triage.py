@@ -16,6 +16,7 @@ cannot hide one.
 from __future__ import annotations
 
 import re
+import threading
 import time
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -34,12 +35,15 @@ from sc_sentry.static import UNREVIEWED_CONFIDENCE, finding_for, unreviewed_reas
 
 __all__ = [
     "DEFAULT_CANDIDATES",
+    "Budget",
     "TriageAnswer",
     "Verdict",
     "Verdicts",
     "ask",
     "class_definition",
     "render",
+    "run",
+    "run_budgeted",
     "triage_findings",
 ]
 
@@ -47,6 +51,17 @@ SKILLS = Path(__file__).resolve().parent / "skills"
 DEFAULT_CANDIDATES = 20
 """How many candidate functions go to the model for one class in one file, likeliest first."""
 MAX_FUNCTION_LINES = 40
+CHARS_PER_TOKEN = 3
+"""Solidity with its identifiers tokenizes at about this many characters to a token, a little
+under prose, so an estimate made with it errs toward spending less."""
+FORMAT_OVERHEAD_TOKENS = 500
+"""What the signature and the output schema add around the prompt."""
+MIN_CANDIDATES = 3
+"""The fewest candidates worth a call: fewer than this and the order is nearly the whole answer."""
+MIN_COMPLETION_TOKENS = 1500
+"""Below this the answer, and the reasoning before it, will be cut off mid-verdict."""
+MIN_SECONDS = 3.0
+"""Below this a call would be abandoned before it could answer."""
 
 
 class Verdict(BaseModel):
@@ -142,8 +157,14 @@ class TriageAnswer:
     usage: tuple[tuple[str, int, int], ...] = ()
 
 
-def ask(definition: str, table: str, *, count: int) -> TriageAnswer:
-    """One model call over `count` numbered candidates. Never raises."""
+def ask(
+    definition: str, table: str, *, count: int, config: Mapping[str, Any] | None = None
+) -> TriageAnswer:
+    """One model call over `count` numbered candidates. Never raises.
+
+    `config` is passed to the model call itself (`max_tokens`, `timeout`), for a caller that has
+    a budget to keep.
+    """
     import dspy
 
     class Triage(dspy.Signature):  # type: ignore[misc]
@@ -157,7 +178,10 @@ def ask(definition: str, table: str, *, count: int) -> TriageAnswer:
     try:
         with dspy.track_usage() as tracker:
             try:
-                result = dspy.Predict(Triage)(class_definition=definition, candidates=table)
+                extra = {"config": dict(config)} if config else {}
+                result = dspy.Predict(Triage)(
+                    class_definition=definition, candidates=table, **extra
+                )
             finally:
                 usage_data = dict(getattr(tracker, "usage_data", {}))
     except Exception as failure:
@@ -258,3 +282,127 @@ def run(
         return entries, 0, None
     answer = ask(class_definition(vuln), render(shown, parsed), count=len(shown))
     return entries, len(shown), answer
+
+
+@dataclass(frozen=True, slots=True)
+class Budget:
+    """What one file may cost across all its classes, for a host that meters from outside.
+
+    A host that refuses the call past its limit, or kills the process at its wall clock, records
+    the unit as a harness that failed and discards what the harness wrote. So this keeps the
+    harness inside the limit by doing less: a class the budget cannot cover keeps its static
+    order, and the report still stands. `None` is no limit.
+    """
+
+    seconds: float | None = None
+    calls: int | None = None
+    tokens: int | None = None
+
+    @property
+    def bounded(self) -> bool:
+        return any(limit is not None for limit in (self.seconds, self.calls, self.tokens))
+
+
+@dataclass(frozen=True, slots=True)
+class _Job:
+    vuln: VulnClass
+    shown: int
+    table: str
+    definition: str
+    completion_cap: int | None
+
+
+def _tokens(text: str) -> int:
+    return -(-len(text) // CHARS_PER_TOKEN)
+
+
+def _fit(
+    vuln: VulnClass,
+    entries: Sequence[CandidateFunction],
+    parsed: Syntax,
+    *,
+    sent: int,
+    share: int | None,
+) -> _Job | None:
+    """The most candidates, likeliest first, that leave the answer room within `share` tokens."""
+    definition = class_definition(vuln)
+    shown = min(sent, len(entries))
+    floor = min(MIN_CANDIDATES, len(entries))
+    while shown >= max(floor, 1):
+        table = render(entries[:shown], parsed)
+        if share is None:
+            return _Job(vuln, shown, table, definition, None)
+        prompt = _tokens(INSTRUCTIONS + definition + table) + FORMAT_OVERHEAD_TOKENS
+        if share - prompt >= MIN_COMPLETION_TOKENS:
+            return _Job(vuln, shown, table, definition, share - prompt)
+        shown -= 1
+    return None
+
+
+def _answers(jobs: Sequence[_Job], seconds: float | None) -> dict[VulnClass, TriageAnswer]:
+    """Every job's call at once, and whatever has answered when the time is up.
+
+    The calls run side by side, so the file costs the slowest of them and not their sum. A call
+    still running at the deadline is abandoned and its class is reported as unanswered: the
+    threads are daemons, so they never hold the process open past the host's wall clock.
+    """
+    answered: dict[VulnClass, TriageAnswer] = {}
+    started = time.monotonic()
+
+    def left() -> float | None:
+        return None if seconds is None else max(0.0, seconds - (time.monotonic() - started))
+
+    def work(job: _Job) -> None:
+        config: dict[str, Any] = {}
+        if job.completion_cap is not None:
+            config["max_tokens"] = job.completion_cap
+        if (remaining := left()) is not None:
+            config["timeout"] = remaining
+        answered[job.vuln] = ask(job.definition, job.table, count=job.shown, config=config)
+
+    threads = [threading.Thread(target=work, args=(job,), daemon=True) for job in jobs]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(left())
+    done = dict(answered)
+    for job in jobs:
+        if job.vuln not in done:
+            done[job.vuln] = TriageAnswer(
+                verdicts={},
+                tokens=0,
+                seconds=time.monotonic() - started,
+                failed=f"no answer within the {seconds:.0f}s budget"
+                if seconds is not None
+                else "the call ended without an answer",
+            )
+    return done
+
+
+def run_budgeted(
+    vulns: Sequence[VulnClass], source: str, *, sent: int = DEFAULT_CANDIDATES, budget: Budget
+) -> dict[VulnClass, tuple[Sequence[CandidateFunction], int, TriageAnswer | None]]:
+    """What `run` returns for each class, with one budget shared by all of them.
+
+    The classes with the most candidate functions get the calls, because an order matters most
+    where there is the most to order. Each gets an equal share of the tokens and as many
+    candidates as fit in it, and the rest keep their static order.
+    """
+    results: dict[VulnClass, tuple[Sequence[CandidateFunction], int, TriageAnswer | None]] = {
+        vuln: (CHECKS[vuln].functions(source), 0, None) for vuln in vulns
+    }
+    parsed = parse(source)
+    if parsed is None or (budget.seconds is not None and budget.seconds < MIN_SECONDS):
+        return results
+    ranked = sorted((v for v in vulns if results[v][0]), key=lambda v: -len(results[v][0]))
+    chosen = ranked if budget.calls is None else ranked[: max(budget.calls, 0)]
+    share = budget.tokens // len(chosen) if budget.tokens is not None and chosen else None
+    jobs = [
+        job
+        for vuln in chosen
+        if (job := _fit(vuln, results[vuln][0], parsed, sent=sent, share=share)) is not None
+    ]
+    answers = _answers(jobs, budget.seconds)
+    for job in jobs:
+        results[job.vuln] = (results[job.vuln][0], job.shown, answers[job.vuln])
+    return results

@@ -40,6 +40,9 @@ sc-sentry audit Pool.sol --mode static             # no model, no .env
 | `--mode` | `triage` | `triage`, `explore` or `static`; see How it works |
 | `--limit` | 9 | findings kept per class in `triage` and `static`, which is the benchmark's cap |
 | `--candidates` | 20 | candidate functions sent to the model per class in `triage` |
+| `--budget-seconds` | none | `triage` only: what a file may take from the command's start, see Under a budget |
+| `--budget-calls` | none | `triage` only: the most model calls for a file |
+| `--budget-tokens` | none | `triage` only: the most tokens for a file |
 | `--max-tokens` | `RLM_MAX_TOKENS`, else 32768 | per-call generation cap |
 | `--max-calls` | 4 | model calls per class |
 | `--max-iterations` | 6 | planner turns per class, in `explore` |
@@ -54,6 +57,8 @@ The harness has two halves. The first is code: for each class, `candidates/<clas
 - **`triage`** (the default) sends the candidate functions for one class in one file to the model, numbered, with each function's code and the class's definition. The model answers a verdict per number: instance or not, how sure, and why. The citation stays with the code. The report is never shorter than the candidates: functions the model picked come first, most confident first, then the ones it was not shown, then the ones it ruled out with its reason kept. The model can move a function up and cannot hide one.
 - **`static`** asks no model. The candidates are the findings, likeliest first, each marked as not reviewed. It is the control group for everything the model adds, and it runs with no `.env`.
 - **`explore`** gives a planner with nine tools (`outline`, `read_lines`, `state_writes`, `external_calls`, `guards`, `loops`, `arithmetic`, `member_reads`, `callers_of`) the file and the class and lets it investigate, and every candidate it considers must come from a tool. It was the first design and is kept for comparison, because it costs ten to forty times the tokens of `triage` (below).
+
+**Under a budget**, `triage` shares one allowance between the classes of a file, for a host that meters a file from outside. `--budget-calls N` gives the calls to the N classes with the most candidate functions, because an order matters most where there is the most to order. `--budget-tokens T` splits T equally between those calls and sends as many candidates as fit with room left for the answer. `--budget-seconds S` counts from the start of the command, runs the calls side by side so a file costs the slowest of them and not their sum, and gives up on any class that has not answered by then. A class the budget did not reach, or that did not answer, keeps its static order and the report is still written, because a host that stops a late process or refuses an over-budget call discards the report and records the file as failed. A failed call is not retried, since a host that counts calls counts a retry. Give it the host's own limits less a margin: a process stopped before its own deadline loses every class of the file.
 
 The rest of the package, by what it holds:
 
