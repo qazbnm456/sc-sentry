@@ -64,6 +64,9 @@ it spends 2,600 to 5,000 tokens before the verdicts. Below this the answer is cu
 mid-verdict, which parses as no answer and costs what a whole one does."""
 MIN_SECONDS = 3.0
 """Below this a call would be abandoned before it could answer."""
+MIN_CALL_SECONDS = 8.0
+"""A call is not started after the first unless this much time is left. It is the fastest a
+call was measured at, so a call started with less is one that cannot finish."""
 
 
 class Verdict(BaseModel):
@@ -299,6 +302,10 @@ class Budget:
     seconds: float | None = None
     calls: int | None = None
     tokens: int | None = None
+    parallel: bool = False
+    """Run the classes' calls side by side. Off by default, because a relay that serves one
+    request at a time queues them, and the ones that cannot finish before the deadline are paid
+    for and thrown away."""
 
     @property
     def bounded(self) -> bool:
@@ -351,18 +358,22 @@ def _fit(
     return None
 
 
-def _answers(jobs: Sequence[_Job], seconds: float | None) -> dict[VulnClass, TriageAnswer]:
-    """Every job's call at once, and whatever has answered when the time is up.
+def _answers(
+    jobs: Sequence[_Job], seconds: float | None, *, parallel: bool
+) -> dict[VulnClass, TriageAnswer]:
+    """Every job's call, and whatever has answered when the time is up.
 
-    The calls run side by side, so the file costs the slowest of them and not their sum. A call
-    still running at the deadline is abandoned and its class is reported as unanswered: the
-    threads are daemons, so they never hold the process open past the host's wall clock.
+    One after another, in order, unless `parallel`. A call is started after the first only if
+    `MIN_CALL_SECONDS` is left, and one that has not answered by the deadline is abandoned and
+    reported as unanswered. The threads are daemons, so they never hold the process open past
+    the host's wall clock. Side by side the file costs the slowest call and not the sum, but
+    behind a relay that serves one request at a time the later calls only queue.
     """
     answered: dict[VulnClass, TriageAnswer] = {}
-    started = time.monotonic()
+    started_at = time.monotonic()
 
     def left() -> float | None:
-        return None if seconds is None else max(0.0, seconds - (time.monotonic() - started))
+        return None if seconds is None else max(0.0, seconds - (time.monotonic() - started_at))
 
     def work(job: _Job) -> None:
         config: dict[str, Any] = {}
@@ -372,18 +383,31 @@ def _answers(jobs: Sequence[_Job], seconds: float | None) -> dict[VulnClass, Tri
             config["timeout"] = remaining
         answered[job.vuln] = ask(job.definition, job.table, count=job.shown, config=config)
 
-    threads = [threading.Thread(target=work, args=(job,), daemon=True) for job in jobs]
-    for thread in threads:
+    def start(job: _Job) -> threading.Thread:
+        thread = threading.Thread(target=work, args=(job,), daemon=True)
         thread.start()
-    for thread in threads:
-        thread.join(left())
+        return thread
+
+    began: list[_Job] = []
+    if parallel:
+        threads = [start(job) for job in jobs]
+        began = list(jobs)
+        for thread in threads:
+            thread.join(left())
+    else:
+        for job in jobs:
+            remaining = left()
+            if began and remaining is not None and (remaining <= 0 or remaining < MIN_CALL_SECONDS):
+                break
+            began.append(job)
+            start(job).join(left())
     done = dict(answered)
-    for job in jobs:
+    for job in began:
         if job.vuln not in done:
             done[job.vuln] = TriageAnswer(
                 verdicts={},
                 tokens=0,
-                seconds=time.monotonic() - started,
+                seconds=time.monotonic() - started_at,
                 failed=f"no answer within the {seconds:.0f}s budget"
                 if seconds is not None
                 else "the call ended without an answer",
@@ -435,7 +459,8 @@ def run_budgeted(
         )
         is not None
     ]
-    answers = _answers(jobs, budget.seconds)
+    answers = _answers(jobs, budget.seconds, parallel=budget.parallel)
     for job in jobs:
-        results[job.vuln] = (results[job.vuln][0], job.shown, answers[job.vuln])
+        if job.vuln in answers:
+            results[job.vuln] = (results[job.vuln][0], job.shown, answers[job.vuln])
     return results

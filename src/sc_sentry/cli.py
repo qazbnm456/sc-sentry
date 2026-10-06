@@ -91,6 +91,13 @@ def main(argv: list[str] | None = None) -> int:
         help="triage only: at most this many tokens for a file, shared equally by the calls, "
         "each sending as many candidates as fit.",
     )
+    audit.add_argument(
+        "--budget-parallel",
+        action="store_true",
+        help="triage only: with a budget, send the classes' calls side by side instead of one "
+        "after another. Faster on an endpoint that answers several at once, wasteful behind a "
+        "relay that serves one at a time.",
+    )
     audit.add_argument("--max-calls", type=int, default=4, help="Model calls per class. Default 4.")
     audit.add_argument(
         "--max-iterations", type=int, default=6, help="Planner turns per class. Default 6."
@@ -173,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
                 else args.budget_seconds - (time.monotonic() - started),
                 calls=args.budget_calls,
                 tokens=args.budget_tokens,
+                parallel=args.budget_parallel,
             ),
         )
         for result in report.results:

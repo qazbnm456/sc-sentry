@@ -43,14 +43,23 @@ class Model:
     def __init__(self, delay: float = 0.0, hold: threading.Event | None = None) -> None:
         self.delay, self.hold = delay, hold
         self.calls: list[tuple[str, int, Mapping[str, Any]]] = []
+        self.active = self.peak = 0
+        self._lock = threading.Lock()
 
     def __call__(
         self, definition: str, table: str, *, count: int, config: Mapping[str, Any] | None = None
     ) -> triage.TriageAnswer:
-        self.calls.append((definition.split(".")[0], count, dict(config or {})))
-        if self.hold is not None:
-            self.hold.wait(10)
-        time.sleep(self.delay)
+        with self._lock:
+            self.calls.append((definition.split(".")[0], count, dict(config or {})))
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+        try:
+            if self.hold is not None:
+                self.hold.wait(10)
+            time.sleep(self.delay)
+        finally:
+            with self._lock:
+                self.active -= 1
         verdicts = {
             n: triage.Verdict(id=n, instance=True, confidence=5, reasoning="r")
             for n in range(1, count + 1)
@@ -183,19 +192,75 @@ class TestTheTokensAreShared:
 
 
 class TestTheDeadline:
-    def test_the_calls_run_side_by_side_so_a_file_costs_the_slowest_not_the_sum(
+    def test_the_calls_run_one_after_another_unless_asked_to_run_side_by_side(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(triage, "MIN_SECONDS", 0.0)
-        model = Model(delay=0.4)
+        monkeypatch.setattr(triage, "MIN_CALL_SECONDS", 0.0)
+        for parallel, peak in ((False, 1), (True, 2)):
+            model = Model(delay=0.3)
+            monkeypatch.setattr(triage, "ask", model)
+            started = time.monotonic()
+            report = audit(
+                SOURCE,
+                "V.sol",
+                [SLIPPAGE, ACCESS],
+                mode="triage",
+                budget=triage.Budget(seconds=5, parallel=parallel),
+            )
+            elapsed = time.monotonic() - started
+            assert (len(model.calls), model.peak) == (2, peak)
+            assert (elapsed >= 0.55) is (not parallel)
+            assert all(r.asked for r in report.results)
+
+    def test_the_likeliest_class_goes_first_and_the_next_waits_for_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(triage, "MIN_SECONDS", 0.0)
+        monkeypatch.setattr(triage, "MIN_CALL_SECONDS", 0.0)
+        model = Model()
         monkeypatch.setattr(triage, "ask", model)
-        started = time.monotonic()
+        audit(SOURCE, "V.sol", [SLIPPAGE, ACCESS], mode="triage", budget=triage.Budget(seconds=5))
+        assert [name for name, _, _ in model.calls] == ["Class: access_control", "Class: slippage"]
+
+    def test_a_call_that_cannot_finish_in_the_time_left_is_not_started_or_paid_for(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(triage, "MIN_SECONDS", 0.0)
+        monkeypatch.setattr(triage, "MIN_CALL_SECONDS", 1.5)
+        model = Model(delay=0.6)
+        monkeypatch.setattr(triage, "ask", model)
         report = audit(
-            SOURCE, "V.sol", [SLIPPAGE, ACCESS], mode="triage", budget=triage.Budget(seconds=5)
+            SOURCE, "V.sol", [SLIPPAGE, ACCESS], mode="triage", budget=triage.Budget(seconds=2)
         )
-        assert len(model.calls) == 2
-        assert time.monotonic() - started < 0.75
-        assert all(r.asked for r in report.results)
+        # The first call always runs. After it, under 1.5 s of the 2 are left, so the second
+        # class is neither called nor reported as a failure: it keeps its static order.
+        assert [name for name, _, _ in model.calls] == ["Class: access_control"]
+        slippage = result_of(report.results, SLIPPAGE)
+        assert not slippage.asked and slippage.failed is None
+        assert {f.origin for f in slippage.findings} == {"static"}
+
+    def test_after_a_call_that_missed_the_deadline_nothing_else_is_started(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(triage, "MIN_SECONDS", 0.0)
+        monkeypatch.setattr(triage, "MIN_CALL_SECONDS", 0.0)
+        release = threading.Event()
+        model = Model(hold=release)
+        monkeypatch.setattr(triage, "ask", model)
+        try:
+            report = audit(
+                SOURCE,
+                "V.sol",
+                [SLIPPAGE, ACCESS],
+                mode="triage",
+                budget=triage.Budget(seconds=0.3),
+            )
+        finally:
+            release.set()
+        assert len(model.calls) == 1
+        assert result_of(report.results, ACCESS).failed is not None
+        assert not result_of(report.results, SLIPPAGE).asked
 
     def test_a_class_that_has_not_answered_at_the_deadline_keeps_its_static_order(
         self, monkeypatch: pytest.MonkeyPatch
