@@ -26,7 +26,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from sc_sentry.audit import Finding, usage_of
+from sc_sentry.audit import Finding, resolve_max_tokens, usage_of
 from sc_sentry.checks import CHECKS, CandidateFunction, parse
 from sc_sentry.classes import VulnClass
 from sc_sentry.solidity import Syntax
@@ -220,12 +220,17 @@ def triage_findings(
     answer: TriageAnswer,
     *,
     limit: int | None = None,
+    withdraw: bool = False,
 ) -> tuple[Finding, ...]:
     """The candidates as findings: instances first, then unseen ones, then those ruled out.
 
     `sent` is how many of `entries` the model was shown. Instances come most confident first, the
     unseen (past `sent`, or given no verdict) in the order the finders ranked them, and a function
-    the model ruled out last with its reason, marked `rejected` so a reader can see what it took.
+    the model ruled out last, with its reason. With `withdraw` it is also marked `rejected`, which
+    a report writes as a suppressed result, so a reader can see what it took and a host that
+    reads only standing results does not count it. That is off by default: measured on the
+    validation part, withdrawing what the model ruled out cost 57 of 84 corpus matches at the
+    function floor and the model was as sure of the ones it was wrong about as of the rest.
     """
     chosen: list[tuple[int, Finding]] = []
     unseen: list[Finding] = []
@@ -267,9 +272,11 @@ def triage_findings(
                     path,
                     entry,
                     confidence=UNREVIEWED_CONFIDENCE,
-                    reasoning=verdict.reasoning,
+                    reasoning=verdict.reasoning
+                    if withdraw
+                    else f"The model judged this not an instance: {verdict.reasoning}",
                     origin="model",
-                    rejected="reviewed_not_an_instance",
+                    rejected="reviewed_not_an_instance" if withdraw else None,
                 )
             )
     ordered = [f for _, f in sorted(chosen, key=lambda item: -item[0])] + unseen + ruled_out
@@ -353,7 +360,9 @@ def _fit(
             return _Job(vuln, shown, table, definition, None)
         prompt = _prompt_tokens(definition, table)
         if share - prompt >= MIN_COMPLETION_TOKENS:
-            return _Job(vuln, shown, table, definition, share - prompt)
+            return _Job(
+                vuln, shown, table, definition, min(share - prompt, resolve_max_tokens(None))
+            )
         shown -= 1
     return None
 

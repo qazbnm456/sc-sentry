@@ -92,6 +92,13 @@ def main(argv: list[str] | None = None) -> int:
         "each sending as many candidates as fit.",
     )
     audit.add_argument(
+        "--withdraw",
+        action="store_true",
+        help="triage only: mark the candidates the model ruled out as rejected, so a SARIF "
+        "reader suppresses them. Off by default: on the validation part it cost two thirds of "
+        "the corpus matches.",
+    )
+    audit.add_argument(
         "--budget-parallel",
         action="store_true",
         help="triage only: with a budget, send the classes' calls side by side instead of one "
@@ -140,8 +147,8 @@ def main(argv: list[str] | None = None) -> int:
     budgeted = any(
         limit is not None for limit in (args.budget_seconds, args.budget_calls, args.budget_tokens)
     )
-    if budgeted and args.mode != "triage":
-        print("--budget-* applies to --mode triage only", file=sys.stderr)
+    if (budgeted or args.withdraw) and args.mode != "triage":
+        print("--budget-* and --withdraw apply to --mode triage only", file=sys.stderr)
         return 2
 
     if args.mode != "static":
@@ -174,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
             mode=args.mode,
             limit=args.limit,
             sent=args.candidates,
+            withdraw=args.withdraw,
             budget=Budget(
                 seconds=None
                 if args.budget_seconds is None

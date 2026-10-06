@@ -239,6 +239,7 @@ def audit(
     limit: int | None = DEFAULT_STATIC_LIMIT,
     sent: int = 20,
     budget: Budget | None = None,
+    withdraw: bool = False,
 ) -> Report:
     """Audit one file for each class asked (every class by default).
 
@@ -248,8 +249,9 @@ def audit(
     - `triage`: the harness's candidate functions go to the model in one call, which decides
       which are instances. The citations are the code's, and the report keeps every
       candidate, the model's picks first. At most `sent` go to the model. With a `budget`,
-      the file's classes share it: their calls run side by side, and a class the budget does not
-      cover keeps its static order.
+      the file's classes share it: their calls run one after another, and a class the budget
+      does not cover keeps its static order. Candidates the model ruled out stay in the report
+      below the rest, and `withdraw` marks them rejected instead.
     - `static`: no model. The candidate functions are the findings, likeliest first.
 
     Both of the last two keep at most `limit` findings for a class.
@@ -285,7 +287,7 @@ def audit(
                     candidates=len(candidates),
                     asked=shown > 0,
                     findings=triage.triage_findings(
-                        vuln, source, path, entries, shown, answer_t, limit=limit
+                        vuln, source, path, entries, shown, answer_t, limit=limit, withdraw=withdraw
                     ),
                     tokens=answer_t.tokens,
                     seconds=answer_t.seconds,

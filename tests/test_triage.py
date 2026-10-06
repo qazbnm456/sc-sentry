@@ -315,3 +315,56 @@ class TestTheCommand:
         argv = ["audit", str(target), "--mode", "static", "--budget-calls", "2"]
         assert cli.main(argv) == 2
         assert "triage only" in capsys.readouterr().err
+        assert cli.main(["audit", str(target), "--mode", "static", "--withdraw"]) == 2
+
+
+class RulesOut:
+    """A stand-in for `triage.ask` that rules out every candidate but the first."""
+
+    def __call__(
+        self, definition: str, table: str, *, count: int, config: Mapping[str, Any] | None = None
+    ) -> triage.TriageAnswer:
+        verdicts = {
+            n: triage.Verdict(id=n, instance=n == 1, confidence=5, reasoning="a guard is present")
+            for n in range(1, count + 1)
+        }
+        return triage.TriageAnswer(verdicts=verdicts, tokens=10, seconds=0.0)
+
+
+class TestWhatTheModelRuledOut:
+    def test_it_stays_in_the_report_below_the_rest_unless_it_is_withdrawn(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(triage, "ask", RulesOut())
+        kept = audit(SOURCE, "V.sol", [SLIPPAGE], mode="triage").results[0].findings
+        assert all(f.rejected is None for f in kept) and len(kept) == 6
+        assert kept[0].origin == "model" and kept[0].confidence == 5
+        assert kept[-1].reasoning.startswith("The model judged this not an instance")
+        withdrawn = audit(SOURCE, "V.sol", [SLIPPAGE], mode="triage", withdraw=True).results[0]
+        assert [f.rejected for f in withdrawn.findings] == [None] + ["reviewed_not_an_instance"] * 5
+
+    def test_a_report_suppresses_it_only_when_it_is_withdrawn(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from sc_sentry.report import to_sarif
+
+        monkeypatch.setattr(triage, "ask", RulesOut())
+
+        def suppressed(withdraw: bool) -> int:
+            report = audit(SOURCE, "V.sol", [SLIPPAGE], mode="triage", withdraw=withdraw)
+            results = to_sarif([report])["runs"][0]["results"]
+            return sum(1 for r in results if r.get("suppressions"))
+
+        assert (suppressed(False), suppressed(True)) == (0, 5)
+
+
+class TestTheGenerationCap:
+    def test_a_generous_budget_never_asks_for_more_than_the_model_may_write(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = Model()
+        monkeypatch.setattr(triage, "ask", model)
+        monkeypatch.setenv("RLM_MAX_TOKENS", "9000")
+        audit(SOURCE, "V.sol", [SLIPPAGE], mode="triage", budget=triage.Budget(tokens=350_000))
+        [(_, _, config)] = model.calls
+        assert config["max_tokens"] == 9000
