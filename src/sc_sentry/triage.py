@@ -58,8 +58,10 @@ FORMAT_OVERHEAD_TOKENS = 500
 """What the signature and the output schema add around the prompt."""
 MIN_CANDIDATES = 3
 """The fewest candidates worth a call: fewer than this and the order is nearly the whole answer."""
-MIN_COMPLETION_TOKENS = 1500
-"""Below this the answer, and the reasoning before it, will be cut off mid-verdict."""
+MIN_COMPLETION_TOKENS = 4000
+"""A reasoning model's chain of thought shares the completion cap with its answer, and measured
+it spends 2,600 to 5,000 tokens before the verdicts. Below this the answer is cut off
+mid-verdict, which parses as no answer and costs what a whole one does."""
 MIN_SECONDS = 3.0
 """Below this a call would be abandoned before it could answer."""
 
@@ -316,6 +318,16 @@ def _tokens(text: str) -> int:
     return -(-len(text) // CHARS_PER_TOKEN)
 
 
+def _prompt_tokens(definition: str, table: str) -> int:
+    return _tokens(INSTRUCTIONS + definition + table) + FORMAT_OVERHEAD_TOKENS
+
+
+def _floor(vuln: VulnClass, entries: Sequence[CandidateFunction], parsed: Syntax) -> int:
+    """The least a useful call for this class costs: its fewest candidates and a whole answer."""
+    table = render(entries[: min(MIN_CANDIDATES, len(entries))], parsed)
+    return _prompt_tokens(class_definition(vuln), table) + MIN_COMPLETION_TOKENS
+
+
 def _fit(
     vuln: VulnClass,
     entries: Sequence[CandidateFunction],
@@ -332,7 +344,7 @@ def _fit(
         table = render(entries[:shown], parsed)
         if share is None:
             return _Job(vuln, shown, table, definition, None)
-        prompt = _tokens(INSTRUCTIONS + definition + table) + FORMAT_OVERHEAD_TOKENS
+        prompt = _prompt_tokens(definition, table)
         if share - prompt >= MIN_COMPLETION_TOKENS:
             return _Job(vuln, shown, table, definition, share - prompt)
         shown -= 1
@@ -384,9 +396,11 @@ def run_budgeted(
 ) -> dict[VulnClass, tuple[Sequence[CandidateFunction], int, TriageAnswer | None]]:
     """What `run` returns for each class, with one budget shared by all of them.
 
-    The classes with the most candidate functions get the calls, because an order matters most
-    where there is the most to order. Each gets an equal share of the tokens and as many
-    candidates as fit in it, and the rest keep their static order.
+    The classes with the most candidate functions come first, because an order matters most where
+    there is the most to order. A class gets a call only if a useful one still fits in what is
+    left of the tokens, so a budget that cannot pay for every class pays for some of them in
+    full, which is worth more than all of them cut off. What the cheapest calls leave over is
+    shared equally, and each call sends as many candidates as its share holds.
     """
     results: dict[VulnClass, tuple[Sequence[CandidateFunction], int, TriageAnswer | None]] = {
         vuln: (CHECKS[vuln].functions(source), 0, None) for vuln in vulns
@@ -395,12 +409,31 @@ def run_budgeted(
     if parsed is None or (budget.seconds is not None and budget.seconds < MIN_SECONDS):
         return results
     ranked = sorted((v for v in vulns if results[v][0]), key=lambda v: -len(results[v][0]))
-    chosen = ranked if budget.calls is None else ranked[: max(budget.calls, 0)]
-    share = budget.tokens // len(chosen) if budget.tokens is not None and chosen else None
+    floors: dict[VulnClass, int] = {}
+    for vuln in ranked:
+        if budget.calls is not None and len(floors) >= max(budget.calls, 0):
+            break
+        floor = _floor(vuln, results[vuln][0], parsed)
+        if budget.tokens is None or sum(floors.values()) + floor <= budget.tokens:
+            floors[vuln] = floor
+    spare = (
+        (budget.tokens - sum(floors.values())) // len(floors)
+        if budget.tokens is not None and floors
+        else None
+    )
     jobs = [
         job
-        for vuln in chosen
-        if (job := _fit(vuln, results[vuln][0], parsed, sent=sent, share=share)) is not None
+        for vuln, floor in floors.items()
+        if (
+            job := _fit(
+                vuln,
+                results[vuln][0],
+                parsed,
+                sent=sent,
+                share=None if spare is None else floor + spare,
+            )
+        )
+        is not None
     ]
     answers = _answers(jobs, budget.seconds)
     for job in jobs:

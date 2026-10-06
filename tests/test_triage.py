@@ -131,23 +131,46 @@ class TestTheTokensAreShared:
         assert count == triage.MIN_CANDIDATES
         assert config["max_tokens"] == triage.MIN_COMPLETION_TOKENS
 
-    def test_the_tokens_are_split_equally_between_the_calls(
+    def test_what_the_cheapest_calls_leave_over_is_shared_between_them(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         model = Model()
         monkeypatch.setattr(triage, "ask", model)
-        share = self.prompt_for(ACCESS, 10) + triage.MIN_COMPLETION_TOKENS + 5000
+        floors = sum(
+            self.prompt_for(vuln, triage.MIN_CANDIDATES) + triage.MIN_COMPLETION_TOKENS
+            for vuln in (SLIPPAGE, ACCESS)
+        )
+        tokens = floors + 6000
         audit(
+            SOURCE, "V.sol", [SLIPPAGE, ACCESS], mode="triage", budget=triage.Budget(tokens=tokens)
+        )
+        assert len(model.calls) == 2
+        spent = 0
+        for name, count, config in model.calls:
+            vuln = ACCESS if "access_control" in name else SLIPPAGE
+            assert config["max_tokens"] >= triage.MIN_COMPLETION_TOKENS
+            spent += self.prompt_for(vuln, count) + config["max_tokens"]
+        # Every call may spend up to its cap, and together they stay inside the budget.
+        assert spent <= tokens
+
+    def test_a_budget_that_cannot_pay_for_every_class_pays_for_one_in_full(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = Model()
+        monkeypatch.setattr(triage, "ask", model)
+        floor = self.prompt_for(ACCESS, triage.MIN_CANDIDATES) + triage.MIN_COMPLETION_TOKENS
+        report = audit(
             SOURCE,
             "V.sol",
             [SLIPPAGE, ACCESS],
             mode="triage",
-            budget=triage.Budget(tokens=share * 2),
+            budget=triage.Budget(tokens=floor + 500),
         )
-        assert sorted(count for _, count, _ in model.calls) == [6, 10]
-        for _, _, config in model.calls:
-            assert config["max_tokens"] >= triage.MIN_COMPLETION_TOKENS
-            assert config["max_tokens"] <= share
+        # The class with the most candidate functions is the one answered, with a whole answer.
+        [(name, _, config)] = model.calls
+        assert "access_control" in name
+        assert config["max_tokens"] >= triage.MIN_COMPLETION_TOKENS
+        assert not result_of(report.results, SLIPPAGE).asked
 
     def test_a_class_that_cannot_fit_even_its_fewest_candidates_is_not_asked(
         self, monkeypatch: pytest.MonkeyPatch
