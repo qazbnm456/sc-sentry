@@ -27,6 +27,7 @@ from sc_sentry.candidates import (
     oracle_integrity,
     reentrancy,
     slippage,
+    unchecked_external_call,
 )
 from sc_sentry.candidates.citable import citable_site
 from sc_sentry.classes import VulnClass
@@ -156,33 +157,6 @@ def _reentrancy_rejects(
     return "call_or_write"
 
 
-# --- unchecked external call ----------------------------------------------
-
-
-def _unchecked(parsed: Syntax) -> list[Candidate]:
-    out: list[Candidate] = []
-    for c in parsed.calls:
-        if c.is_low_level and not c.bound_names:
-            out.append(
-                _candidate(
-                    "low_level_call_with_no_bound_result",
-                    citable_site(parsed, c.site),
-                    callee=c.callee or "",
-                )
-            )
-        elif c.is_bare_statement:
-            # The shape with no symptom at the call site: an interface call
-            # returning a discardable bool, used as a statement.
-            out.append(
-                _candidate(
-                    "call_result_used_as_a_statement",
-                    citable_site(parsed, c.site),
-                    callee=c.callee or "",
-                )
-            )
-    return out
-
-
 # --- oracle integrity -----------------------------------------------------
 
 
@@ -290,8 +264,9 @@ CHECKS: dict[VulnClass, Check] = {
         Check(
             VulnClass.UNCHECKED_EXTERNAL_CALL,
             "A call whose failure is discarded.",
-            _unchecked,
+            unchecked_external_call.candidates,
             _covered("discarded_call_result"),
+            priority=unchecked_external_call.priority,
         ),
     )
 }

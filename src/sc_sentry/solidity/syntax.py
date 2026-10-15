@@ -457,6 +457,9 @@ class FunctionSite:
     User identifiers, so correlate on them and do not report them (§2.3).
     """
 
+    returns_value: bool = False
+    """True when the declaration has a `returns (...)` clause, so a caller can discard something."""
+
     @property
     def is_externally_reachable(self) -> bool:
         """True when the language permits an outside caller, absent visibility included."""
@@ -1162,9 +1165,26 @@ class Syntax:
                         self.text(c) for c in node.children if c.type == "modifier_invocation"
                     ),
                     parameter_names=self._parameter_names(node),
+                    returns_value=any(c.type == "return_type_definition" for c in node.children),
                 )
             )
         return tuple(found)
+
+    def returns_of(self, name: str, inside_type: str | None = None) -> bool | None:
+        """Whether the functions this unit declares under `name` return a value.
+
+        None when the unit declares no such function, because the callee then lives in a file this
+        unit imports and nothing here says what it returns. An overload that returns counts as
+        returning: the call is only certain to discard nothing when every declaration returns none.
+        `inside_type` limits the answer to one contract, interface or library.
+        """
+        declared = [
+            f
+            for f in self.functions
+            if f.declaration.names[0] == name
+            and (inside_type is None or f.declaration.parent == inside_type)
+        ]
+        return any(f.returns_value for f in declared) if declared else None
 
     def callable_at(self, line: int) -> Declaration | None:
         """The innermost function-like declaration containing `line`.

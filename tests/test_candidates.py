@@ -93,6 +93,81 @@ CASES: dict[str, tuple[V, str, list[tuple[str, str]]]] = {
         "        total += x;\n    }\n}\n",
         [],
     ),
+    "a low-level call whose result is dropped": (
+        V.UNCHECKED_EXTERNAL_CALL,
+        "contract A {\n    function pay(address to, uint256 amount) external {\n"
+        '        to.call{value: amount}("");\n    }\n}\n',
+        [("pay", "flag_of_a_call_never_read")],
+    ),
+    "a low-level call whose flag is read": (
+        V.UNCHECKED_EXTERNAL_CALL,
+        "contract A {\n    function pay(address to, uint256 amount) external {\n"
+        '        (bool ok, ) = to.call{value: amount}("");\n        require(ok, "failed");\n'
+        "    }\n}\n",
+        [],
+    ),
+    "a low-level call whose flag is bound and never read": (
+        V.UNCHECKED_EXTERNAL_CALL,
+        "contract A {\n    function pay(address to, uint256 amount) external {\n"
+        '        (bool ok, ) = to.call{value: amount}("");\n    }\n}\n',
+        [("pay", "flag_of_a_call_never_read")],
+    ),
+    "a low-level call that leaves the flag out": (
+        V.UNCHECKED_EXTERNAL_CALL,
+        "contract A {\n    function pay(address to, bytes calldata data) external {\n"
+        "        (, bytes memory back) = to.call(data);\n        emit Done(back);\n    }\n}\n",
+        [("pay", "flag_of_a_call_never_read")],
+    ),
+    "a token transfer whose bool is dropped": (
+        V.UNCHECKED_EXTERNAL_CALL,
+        "contract A {\n    function pay(address to, uint256 amount) external {\n"
+        "        IERC20(token).transfer(to, amount);\n    }\n}\n",
+        [("pay", "token_bool_discarded")],
+    ),
+    "a safe transfer": (
+        V.UNCHECKED_EXTERNAL_CALL,
+        "contract A {\n    function pay(address to, uint256 amount) external {\n"
+        "        IERC20(token).safeTransfer(to, amount);\n    }\n}\n",
+        [],
+    ),
+    "a native transfer, which reverts by itself": (
+        V.UNCHECKED_EXTERNAL_CALL,
+        "contract A {\n    function pay(address to, uint256 amount) external {\n"
+        "        payable(to).transfer(amount);\n    }\n}\n",
+        [],
+    ),
+    "a require, which returns nothing": (
+        V.UNCHECKED_EXTERNAL_CALL,
+        "contract A {\n    function check(address who) external view {\n"
+        '        require(who != address(0), "zero address");\n    }\n}\n',
+        [],
+    ),
+    "a call to a function of the same unit that returns nothing": (
+        V.UNCHECKED_EXTERNAL_CALL,
+        "contract A {\n    function run(uint256 x) external {\n        _record(x, msg.sender);\n"
+        "    }\n    function _record(uint256 x, address who) internal {\n"
+        "        last = x;\n    }\n}\n",
+        [],
+    ),
+    "a call to a function of the same unit that returns a value": (
+        V.UNCHECKED_EXTERNAL_CALL,
+        "contract A {\n    function run(uint256 x) external {\n        _record(x, msg.sender);\n"
+        "    }\n    function _record(uint256 x, address who) internal returns (bool) {\n"
+        "        last = x;\n        return true;\n    }\n}\n",
+        [("run", "returned_value_discarded")],
+    ),
+    "a call on a contract this unit only imports": (
+        V.UNCHECKED_EXTERNAL_CALL,
+        "contract A {\n    function run(uint256 x) external {\n"
+        "        IRouter(router).enterMarkets(markets, x);\n    }\n}\n",
+        [("run", "call_into_an_imported_contract_as_a_statement")],
+    ),
+    "a call that shares its name with a void function of this unit": (
+        V.UNCHECKED_EXTERNAL_CALL,
+        "contract A {\n    function create(uint256 x) external {\n"
+        "        Pool(pool).create(x, msg.sender, deadline);\n    }\n}\n",
+        [("create", "call_into_an_imported_contract_as_a_statement")],
+    ),
 }
 
 
@@ -130,6 +205,19 @@ def test_a_class_with_a_priority_lists_the_likelier_function_first() -> None:
     assert set(ordered) <= {"payAll", "ping"}
 
 
+def test_a_dropped_flag_comes_before_a_call_nothing_here_describes() -> None:
+    # `note` calls into an imported contract and may return nothing. `pay` drops the flag the
+    # language says a low-level call returns, which is what the class is about.
+    source = (
+        "contract A {\n    function note(uint256 x) external {\n"
+        "        log.record(x, msg.sender);\n    }\n"
+        "    function pay(address to, uint256 amount) external {\n"
+        '        to.call{value: amount}("");\n    }\n}\n'
+    )
+    ordered = [e.function for e in CHECKS[V.UNCHECKED_EXTERNAL_CALL].functions(source)]
+    assert ordered == ["pay", "note"]
+
+
 def test_every_class_still_has_a_finder_and_a_priority_where_one_was_tuned() -> None:
     assert set(CHECKS) == set(V)
     tuned = {
@@ -139,5 +227,6 @@ def test_every_class_still_has_a_finder_and_a_priority_where_one_was_tuned() -> 
         V.ORACLE_INTEGRITY,
         V.REENTRANCY,
         V.SLIPPAGE,
+        V.UNCHECKED_EXTERNAL_CALL,
     }
     assert {v for v, check in CHECKS.items() if check.priority is not None} == tuned

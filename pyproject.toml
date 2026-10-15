@@ -1,6 +1,6 @@
 [project]
 name = "sc-sentry"
-version = "0.6.0"
+version = "0.6.1"
 description = "Smart Contract Sentry: an RLM harness that hunts vulnerabilities in Solidity and cites the exact lines."
 readme = "README.md"
 requires-python = ">=3.11"
