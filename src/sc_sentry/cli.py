@@ -74,8 +74,8 @@ def main(argv: list[str] | None = None) -> int:
         "--budget-seconds",
         type=float,
         default=None,
-        help="triage only: finish within this many seconds of the command starting, with the "
-        "classes' calls side by side. A class that has not answered keeps its static order.",
+        help="triage only: finish within this many seconds of the command starting, calling "
+        "the classes one after another. A class that has not answered keeps its static order.",
     )
     audit.add_argument(
         "--budget-calls",
