@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -217,5 +218,26 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def run() -> None:
+    """The command's entry point: report, then leave without the interpreter's own shutdown.
+
+    A host with a wall clock records a unit whose process never exits as a timeout, report or no
+    report. In the dry run a unit's report was complete, 25 findings, and the process sat waiting
+    on a lock until it was killed at 590 seconds, so the whole unit counted as invalid. The
+    interpreter's exit runs handlers that other libraries register (litellm flushes its logging
+    queue and closes its clients), and with a call abandoned at the deadline still being unwound
+    by a daemon thread they can wait on each other. By the time `main` returns everything this
+    command writes is written and closed, so there is nothing for those handlers to save.
+    """
+    try:
+        code = main()
+    except SystemExit as leaving:  # argparse's own exits, `--help` among them
+        code = leaving.code if isinstance(leaving.code, int) else int(leaving.code is not None)
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(OSError, ValueError):
+            stream.flush()
+    os._exit(code)
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    run()

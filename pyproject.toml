@@ -1,6 +1,6 @@
 [project]
 name = "sc-sentry"
-version = "0.6.1"
+version = "0.6.2"
 description = "Smart Contract Sentry: an RLM harness that hunts vulnerabilities in Solidity and cites the exact lines."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -41,7 +41,7 @@ Repository = "https://github.com/qazbnm456/sc-sentry"
 Issues = "https://github.com/qazbnm456/sc-sentry/issues"
 
 [project.scripts]
-sc-sentry = "sc_sentry.cli:main"
+sc-sentry = "sc_sentry.cli:run"
 # The contract-assay adapter: `run` sweeps a corpus, `score` scores the result.
 # Installed always, and it says what to install when the extra is missing.
 sc-sentry-contract-assay = "sc_sentry.contract_assay.cli:main"
