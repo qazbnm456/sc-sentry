@@ -145,8 +145,23 @@ def configure_once(
     from rlm_harness import RLMConfig, configure
 
     dspy.configure_cache(enable_disk_cache=cache, enable_memory_cache=cache)
+    # Pinned on both roles. Unpinned means the server's default -- typically
+    # 1.0 -- and two runs over one file are two samples of an unrecorded
+    # distribution. Set here and not on `dspy.settings.lm`, which is the main
+    # LM alone: the sub LM that `explore` calls was never pinned that way.
+    temperature = {"temperature": float(os.environ.get("SC_SENTRY_TEMPERATURE", "0.0"))}
     cfg = replace(
         RLMConfig.from_env(),
+        main_lm_kwargs=temperature,
+        sub_lm_kwargs=temperature,
+        # The per-LM flag gates dspy's store, so `configure_cache` alone
+        # caches nothing; this carries the switch to both roles.
+        lm_cache=cache,
+        # Off, as it was before dspy 3.4: on, code in the sandbox may build
+        # predictors that run on the host, charge `max_llm_calls` and are
+        # handed this task's tools, so the budget and the tool boundary would
+        # no longer be this harness's.
+        sandbox_sub_agents=False,
         max_tokens=resolve_max_tokens(max_tokens),
         max_llm_calls=max_calls,
         max_iterations=max_iterations,
@@ -157,14 +172,6 @@ def configure_once(
         max_retries=3,
     )
     configure(cfg)
-    # Pinned after `configure`, because `RLMConfig` has no temperature field and
-    # the LM does not exist before this point. Unpinned means the server's
-    # default -- typically 1.0 -- and two runs over one file are two samples of
-    # an unrecorded distribution.
-    lm = getattr(dspy.settings, "lm", None)
-    if lm is not None and hasattr(lm, "kwargs"):
-        lm.kwargs["temperature"] = float(os.environ.get("SC_SENTRY_TEMPERATURE", "0.0"))
-        lm.cache = cache
     _CONFIGURED = True
 
 
