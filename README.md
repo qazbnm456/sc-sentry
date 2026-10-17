@@ -116,11 +116,11 @@ Develop a finder against the public corpus and nothing else, and split it by rep
 
 [ca]: https://github.com/qazbnm456/contract-assay
 
-contract-assay is not on PyPI, and its repository is private for now: you need read access to it to install the extra. With that, follow the benchmark's README ("Where to start"), which is the path for any harness of your own. For this one it is:
+The extra installs contract-assay from PyPI. Its wheel is the engine only, and the corpus it scores against is in its repository, so a run needs a clone of that too. Then follow the benchmark's README ("Where to start"), which is the path for any harness of your own. For this one it is:
 
 ```bash
-git clone https://github.com/qazbnm456/contract-assay
-pip install -e ./contract-assay && pip install -e "./sc-sentry[contract-assay]"
+git clone --branch v0.1.3 https://github.com/qazbnm456/contract-assay
+pip install -e "./sc-sentry[contract-assay]"
 contract-assay fetch contract-assay/corpus/records --source-root checkout
 
 args=(); for m in sc-sentry/src/sc_sentry/contract_assay/manifests/*.manifest.json; do args+=(--manifest "$m"); done

@@ -6,13 +6,14 @@ A standalone harness that hunts Solidity vulnerabilities and writes JSON or SARI
 
 ```console
 $ pip install -e ".[dev]"
-$ pip install -e ../contract-assay -e ".[dev,contract-assay]"   # the adapter too: a clone of contract-assay first
+$ pip install -e ".[dev,contract-assay]"                         # the adapter too, from PyPI
 $ ruff check src tests && ruff format --check src tests
-$ mypy src --exclude 'sc_sentry/contract_assay'
+$ mypy src --exclude 'sc_sentry/contract_assay'                   # without the extra
+$ mypy src                                                        # with it
 $ pytest
 ```
 
-CI runs exactly this, without contract-assay installed (its repository is private). With it installed, also run `mypy src` so the adapter is type-checked. A change is done when the local gate and the remote CI run are both green.
+CI runs both: the harness without contract-assay, which proves it needs none, and once more with the extra, which type-checks and tests the adapter. The adapter's tests build their own corpus, so neither needs a clone of contract-assay; a real run does, for its records. A change is done when the local gate and the remote CI run are both green.
 
 ## Rules that are easy to break
 

@@ -22,10 +22,6 @@ jobs:
     # The harness as a user installs it: no benchmark. This is also the proof
     # that it needs none -- the core tests run, and the contract-assay
     # adapter's tests skip themselves because the extra is absent.
-    #
-    # The adapter (`sc_sentry.contract_assay`) is type-checked and tested locally, with
-    # contract-assay installed from a clone: that repository is private, and a
-    # job here would need a credential to reach it.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -38,4 +34,18 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       - run: mypy src --exclude 'sc_sentry/contract_assay'
+      - run: pytest
+
+  adapter:
+    # The contract-assay adapter (`sc_sentry.contract_assay`), with the extra
+    # installed from PyPI. Its tests build their own corpus, so no clone of
+    # contract-assay is needed here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,contract-assay]"
+      - run: mypy src
       - run: pytest
