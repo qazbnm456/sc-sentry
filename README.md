@@ -14,10 +14,18 @@ wrote vault.sarif
 ## Install
 
 ```bash
+python -m venv .venv && . .venv/bin/activate
+pip install sc-sentry
+$EDITOR .env   # where the model lives: the variables are below
+```
+
+To work on it, install from a clone instead. The clone also holds `.env.example`, with every variable named:
+
+```bash
 git clone https://github.com/qazbnm456/sc-sentry
 python -m venv .venv && . .venv/bin/activate
-pip install -e ./sc-sentry
-cp sc-sentry/.env.example .env && $EDITOR .env   # where the model lives
+pip install -e "./sc-sentry[dev]"
+cp sc-sentry/.env.example .env && $EDITOR .env
 ```
 
 Both commands read `.env` from the directory you run them in, and a variable already exported wins over the file, so `RLM_MAIN_MODEL=x sc-sentry audit ...` overrides it for one run. `RLM_MAIN_MODEL`, `RLM_SUB_MODEL`, `RLM_BASE_URL`, `RLM_API_KEY` and `RLM_ADAPTER` say where the model is. `RLM_MAX_TOKENS` and `SC_SENTRY_TEMPERATURE` are optional (below). `--mode static` needs none of them.

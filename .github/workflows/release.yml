@@ -1,0 +1,58 @@
+name: Release
+
+# A tag `vX.Y.Z` publishes that version to PyPI. Publishing is by Trusted
+# Publishing: PyPI trusts this workflow in the `pypi` environment, so no token
+# is stored here. A version on PyPI can never be uploaded again, even after it
+# is deleted, so everything that can fail runs before the upload.
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The tag, pyproject and `__version__` name one version, or nothing ships.
+      - name: The tag matches the version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          project=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          module=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/sc_sentry/__init__.py)
+          echo "tag=$tag pyproject=$project __version__=$module"
+          test "$tag" = "$project" && test "$tag" = "$module"
+      - run: pip install -e ".[dev,contract-assay]" build twine
+      - run: ruff check src tests && ruff format --check src tests
+      - run: mypy src
+      - run: pytest
+      - run: python -m build
+      - run: twine check --strict dist/*
+      # What a user gets: the wheel alone in a clean venv, without the extra.
+      - name: The wheel installs and runs
+        run: |
+          python -m venv /tmp/wheel-venv
+          /tmp/wheel-venv/bin/pip install dist/*.whl
+          /tmp/wheel-venv/bin/sc-sentry classes
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/sc-sentry/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

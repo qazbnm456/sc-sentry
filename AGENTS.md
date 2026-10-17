@@ -15,6 +15,8 @@ $ pytest
 
 CI runs both: the harness without contract-assay, which proves it needs none, and once more with the extra, which type-checks and tests the adapter. The adapter's tests build their own corpus, so neither needs a clone of contract-assay; a real run does, for its records. A change is done when the local gate and the remote CI run are both green.
 
+A release is a tag `vX.Y.Z` on a green `main`. The version in `pyproject.toml` and `__version__` in `src/sc_sentry/__init__.py` have to match the tag first: `release.yml` checks it, runs the gate, builds, and publishes to PyPI by Trusted Publishing. A version can never be uploaded to PyPI twice, so a bad release is fixed with a new version.
+
 ## Rules that are easy to break
 
 - **The core never imports `contract_assay`.** Only the `sc_sentry.contract_assay` subpackage may; a test asserts it, and CI would fail on the import anyway.
