@@ -169,8 +169,10 @@ def _inner(node: Node | None) -> Node | None:
 
 
 def _member(function: Node | None) -> tuple[Node | None, Node | None]:
-    """(receiver node, member name) of a call's callee when it is `receiver.name`, else (None,
-    None)."""
+    """(receiver node, member name) of a call's callee when it is `receiver.name`.
+
+    Any other callee gives (None, None).
+    """
     inside = _inner(function)
     if inside is not None and inside.type == "member_expression":
         prop = inside.child_by_field_name("property")
@@ -183,8 +185,10 @@ def _arguments(call: Node) -> list[Node]:
 
 
 def _citable(text: str) -> bool:
-    """Whether whole lines of this text could be cited: six tokens, one naming something of the
-    file's own."""
+    """Whether whole lines of this text could be cited.
+
+    They need six tokens, and one of them has to name something of the file's own.
+    """
     tokens = _QTOKEN.findall(text)
     return len(tokens) >= 6 and any(
         (t[0].isalpha() or t[0] == "_") and t not in _LANGUAGE for t in tokens
@@ -192,8 +196,7 @@ def _citable(text: str) -> bool:
 
 
 def _is_mul_div_helper(tokens: tuple[str, ...]) -> bool:
-    """mulDiv, mulDivUp, mulWadDown, divWad, wmul, rdiv, divUp ...: a product-then-quotient
-    helper."""
+    """A product-then-quotient helper: mulDiv, mulDivUp, mulWadDown, divWad, wmul, rdiv, divUp."""
     t = set(tokens)
     if t & {"wmul", "wdiv", "rmul", "rdiv"}:
         return True
@@ -203,8 +206,10 @@ def _is_mul_div_helper(tokens: tuple[str, ...]) -> bool:
 
 
 def _is_rounding_helper(tokens: tuple[str, ...]) -> bool:
-    """A helper named only for the rounding it applies (ceilDiv, roundUp, floor), not a noun that
-    contains the word."""
+    """A helper named only for the rounding it applies (ceilDiv, roundUp, floor).
+
+    A noun that merely contains the word does not count.
+    """
     t = set(tokens)
     if not t or not t <= _ROUNDING_WORDS:
         return False
@@ -231,8 +236,7 @@ def candidates(parsed: Syntax) -> list[Candidate]:
         return node
 
     def widened(site: Site) -> Site:
-        """`site`, or the whole lines around it inside its function once they make a citable
-        quote."""
+        """`site`, widened to the whole lines around it inside its function until they quote."""
         enclosing = parsed.callable_at(site.start_line)
         span = (enclosing.start_line, enclosing.end_line) if enclosing is not None else None
         lo, hi = site.start_line, site.end_line
@@ -260,8 +264,7 @@ def candidates(parsed: Syntax) -> list[Candidate]:
         if key in seen:
             return
         seen.add(key)
-        # A long statement (an emit, a call with many arguments) is cited at the expression, not
-        # whole.
+        # A long statement (an emit, a call with many arguments) is cited at the expression.
         site = parsed.site_of(node) if statement.end_line - statement.start_line >= 4 else statement
         raw.append((predicate, site, statement.start_line, detail))
 
@@ -414,8 +417,8 @@ def candidates(parsed: Syntax) -> list[Candidate]:
                     add("unchecked_arithmetic", m)
                     break
 
-    # Weigh each function by the distinct statements that are rounding-prone, each at its most
-    # specific predicate.
+    # Weigh each function by its distinct rounding-prone statements, each at its most specific
+    # predicate.
     best: dict[tuple[str | None, str | None], dict[int, float]] = {}
     for predicate, site, statement_line, _ in raw:
         per_statement = best.setdefault((site.host.contract, site.host.function), {})
@@ -438,6 +441,8 @@ def candidates(parsed: Syntax) -> list[Candidate]:
 
 
 def priority(ref: Candidate) -> float:
-    """Functions with more rounding-prone statements first; within a function, the most specific
-    site."""
+    """Functions with more rounding-prone statements first.
+
+    Within a function, the most specific site comes first.
+    """
     return float(ref.detail.get("fn_score", 0.0)) * 100 + _WEIGHT.get(ref.predicate, 0.0)

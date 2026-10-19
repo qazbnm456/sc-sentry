@@ -1,26 +1,25 @@
 """A sweep over a contract-assay corpus, for iterating on the harness.
 
-The benchmark's own `contract-assay run --model-caller sc_sentry.contract_assay.caller:call`
-is the way to produce a figure somebody else can reproduce, and this is the same sweep with
-two conveniences the benchmark does not have: `--units N` takes a **stratified** slice
-(every class once before any class twice), and the model's limits are flags. There is no
-loop here. The benchmark's `run_submission` reads each unit, asks each detector, verifies
-every citation against the source, records the run and names what produced it, and
-`caller.call` is the harness's side of it. What this adds is selecting the units and
-printing how the sweep went.
+The benchmark's own `contract-assay run --model-caller sc_sentry.contract_assay.caller:call` is the
+way to produce a figure somebody else can reproduce. This is the same sweep with two conveniences
+the benchmark does not have: `--units N` takes a **stratified** slice (every class once before any
+class twice), and the model's limits are flags. There is no loop here. The benchmark's
+`run_submission` reads each unit, asks each detector, verifies every citation against the source,
+records the run and names what produced it, and `caller.call` is the harness's side of it. This
+module selects the units and prints how the sweep went.
 
-Three things carry over from the harness, each a measured cost:
+Three things carry over from the harness, each for a measured cost:
 
-- **A class with no candidate sites costs nothing.** `plan()` returns `None` when the unit
-  holds none, so the planner is never asked to audit a file for what it does not contain,
-  which is both cheaper and the only way to avoid an invented finding.
-- **The planner holds tools.** The first attempt gave it a prose instruction and a string,
-  and it spun for 171 seconds and produced nothing.
-- **Findings are ordered by the model's own confidence**, because the cap keeps the first
-  ones and nothing re-ranks for a submission.
+- **A class with no candidate sites costs nothing.** `plan()` returns `None` when the unit holds
+  none, so the planner is never asked to audit a file for what it does not contain. That is cheaper,
+  and it is the only way to avoid an invented finding.
+- **The planner holds tools.** Given a prose instruction and the source as a string instead, it ran
+  for 171 seconds and produced nothing.
+- **Findings are ordered by the model's own confidence**, because the cap keeps the first ones and
+  nothing ranks them again for a submission.
 
 A failed call is an `invalid` run with its cause printed, since a run that says only
-`transport_failure` leaves the cause nowhere.
+`transport_failure` records the cause nowhere.
 """
 
 from __future__ import annotations
@@ -50,9 +49,9 @@ def main(argv: list[str] | None = None) -> int:
         "--corpus",
         type=Path,
         required=True,
-        help="contract-assay's `corpus/records` directory. Required, and not "
-        "defaulted to a sibling checkout: a default would make the figures "
-        "depend on where the clone happens to sit.",
+        help="contract-assay's `corpus/records` directory. It is required and has no default, "
+        "because a default sibling checkout would make the figures depend on where the clone "
+        "happens to sit.",
     )
     parser.add_argument(
         "--source-root",
@@ -64,15 +63,15 @@ def main(argv: list[str] | None = None) -> int:
         "--max-tokens",
         type=int,
         default=None,
-        help="Per-call generation cap. Omitted, RLM_MAX_TOKENS if set, else 32768.",
+        help="Per-call generation cap. Default: RLM_MAX_TOKENS if set, else 32768.",
     )
     parser.add_argument(
         "--mode",
         choices=("triage", "explore", "static"),
         default="triage",
         help="triage: the model decides which candidate functions are instances. explore: a "
-        "planner with tools investigates. static: no model, the candidates themselves "
-        "(the control group, and it needs no .env).",
+        "planner with tools investigates. static: no model, and the candidates are the findings "
+        "(the control group, which needs no .env).",
     )
     parser.add_argument("--max-calls", type=int, default=4)
     parser.add_argument("--max-iterations", type=int, default=6)
@@ -87,8 +86,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--cache",
         action="store_true",
-        help="Serve repeated calls from dspy's disk cache. Fast, and the cost "
-        "column then measures nothing -- for iterating downstream of the model.",
+        help="Serve repeated calls from dspy's disk cache. It is fast, and the cost column then "
+        "measures nothing, so use it for iterating on what happens downstream of the model.",
     )
     args = parser.parse_args(argv)
 
@@ -96,9 +95,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode == "explore":
         os.environ["SC_SENTRY_MODE"] = "explore"
     if args.mode != "static" and not os.environ.get("RLM_MAIN_MODEL"):
-        # Checked here rather than at the first call: the error that would otherwise land
-        # is raised after a unit has already been audited, which costs a sweep and names
-        # the wrong thing.
+        # Checked here rather than at the first call, where the error would be raised after a unit
+        # had already been audited, which costs a sweep and names the wrong thing.
         print(
             "RLM_MAIN_MODEL is not set. Copy .env.example to .env in this directory and"
             " fill it in, or export the four RLM_* variables.",
@@ -135,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     if not units:
         print(
-            f"no readable unit under {args.source_root} -- run `contract-assay fetch` first",
+            f"no readable unit under {args.source_root}: run `contract-assay fetch` first",
             file=sys.stderr,
         )
         return 2
@@ -149,8 +147,9 @@ def main(argv: list[str] | None = None) -> int:
             detectors,
             units,
             model=model,
-            # The dev loop's, so the overrun line `caller.call` prints for a round's 30
-            # seconds does not fire on every class. `contract-assay run` keeps the benchmark's.
+            # The development loop's own limit, so the overrun line that `caller.call` prints for a
+            # round's 30 seconds does not fire on every class. `contract-assay run` keeps the
+            # benchmark's limit.
             wall_seconds=10_000,
             max_calls=args.max_calls,
             predictions_per_unit=args.predictions_per_unit,

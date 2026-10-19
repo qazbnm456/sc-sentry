@@ -6,8 +6,7 @@ on:
 
 jobs:
   lint:
-    # ruff pinned to the same minor as pyproject's dev extra: its formatter's
-    # output changes between minors.
+    # ruff is bounded to the same minor version as pyproject's dev extra, because its formatter's output changes between minors.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,9 +18,7 @@ jobs:
       - run: ruff format --check src tests
 
   test:
-    # The harness as a user installs it: no benchmark. This is also the proof
-    # that it needs none -- the core tests run, and the contract-assay
-    # adapter's tests skip themselves because the extra is absent.
+    # The harness as a user installs it, with no benchmark. This also proves that it needs none: the core tests run, and the contract-assay adapter's tests skip themselves because the extra is absent.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -37,9 +34,7 @@ jobs:
       - run: pytest
 
   adapter:
-    # The contract-assay adapter (`sc_sentry.contract_assay`), with the extra
-    # installed from PyPI. Its tests build their own corpus, so no clone of
-    # contract-assay is needed here.
+    # The contract-assay adapter (`sc_sentry.contract_assay`), with the extra installed from PyPI. Its tests build their own corpus, so this job needs no clone of contract-assay.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,22 +1,21 @@
-"""The harness: one Solidity file, the classes asked for, a planner per class.
+"""The harness: one Solidity file and the classes asked for, each answered in one of three modes.
 
-What it does beyond asking a model to "find bugs", and each is a measured cost:
+What it does beyond asking a model to "find bugs", each for a measured reason:
 
-- **A class with no candidate sites costs nothing.** `sc_sentry.checks` finds
-  where a class could be; a class with no candidates in the file is never
-  asked about -- which is both cheaper and the only way to avoid an invented
-  finding.
-- **The planner holds tools.** The first attempt gave it a prose instruction and
-  a string; it spun for 171 seconds and produced nothing. Tools (`sites.py`)
-  are what turn a planner from a reader into a planner.
-- **Findings are ordered by the model's own confidence**, which is kept on each
-  finding, so whoever reads the report can cut it where they like.
-- **Every finding is screened by its class's definition** (`checks.rejects`).
-  A rejected finding is kept in the report with the reason, never dropped: a
-  reader deciding whether the screen is too strict needs to see what it took.
+- **A class with no candidate sites costs nothing.** `sc_sentry.checks` finds where a class could
+  be, and a class with no candidates in the file is never asked about. That is cheaper, and it is
+  the only way to avoid an invented finding.
+- **The planner in `explore` holds tools** (`sites.py`). A planner given a prose instruction and
+  the source as a string ran for 171 seconds and produced nothing, because it had nothing to plan
+  with.
+- **Findings are ordered by the model's own confidence**, which is kept on each finding, so
+  whoever reads the report can cut it where they like.
+- **Every finding is screened by its class's definition** (`checks.rejects`). A rejected finding
+  is kept in the report with the reason and never dropped, because a reader deciding whether the
+  screen is too strict needs to see what it took.
 
-The model comes from the environment (`RLM_*`, see `.env.example`), because
-here there is nothing else to ask: this is the whole run.
+The model comes from the environment (`RLM_*`, see `.env.example`), because here there is nothing
+else to ask: this is the whole run.
 """
 
 from __future__ import annotations
@@ -59,10 +58,9 @@ class Answer:
     usage: tuple[tuple[str, int, int], ...] = ()
     """Each language model the run reached, as `(model, calls, tokens)`.
 
-    `tokens` is their sum. The rows are kept apart because a planner and its
-    sub-model are different models with different costs, and a figure that adds
-    them cannot say which one a change made cheaper. A provider that reports no
-    usage leaves this empty, and `tokens` is then zero.
+    `tokens` is their sum. The rows are kept apart because a planner and its sub-model are different
+    models with different costs, and a figure that adds them cannot say which one a change made
+    cheaper. A provider that reports no usage leaves this empty, and `tokens` is then zero.
     """
 
 
@@ -80,8 +78,8 @@ class Finding:
     reasoning: str
     confidence: int
     rejected: str | None = None
-    """What the class definition did not find established at these lines, or
-    `None` when the finding stands."""
+    """What the class definition did not find established at these lines, or `None` when the
+    finding stands."""
     origin: str = "model"
     """`static` for a candidate the harness cited without a model, `model` for one a
     planner proposed. Whoever reads a report should be able to tell which they hold."""
@@ -112,8 +110,8 @@ class Report:
 _CONFIGURED = False
 
 DEFAULT_MAX_TOKENS = 32_768
-"""Generous, because a reasoning model's chain of thought and its structured
-answer share one cap, and a turn that overruns it is cut off mid-JSON."""
+"""Generous, because a reasoning model's chain of thought and its structured answer share one cap,
+and a turn that overruns it is cut off mid-JSON."""
 
 
 def resolve_max_tokens(given: int | None) -> int:
@@ -128,13 +126,13 @@ def configure_once(
 ) -> None:
     """Models and endpoint from the environment, once per process.
 
-    Caching is off by default, because dspy caches on disk and a cached answer
-    comes back in two seconds having spent zero tokens -- a cost figure about a
-    different run. `cache=True` is for iterating on everything downstream of
-    the model, where the cached answer is exactly what is wanted.
+    Caching is off by default, because dspy caches on disk and a cached answer comes back in two
+    seconds having spent zero tokens, which makes the cost figure describe a different run.
+    `cache=True` is for iterating on everything downstream of the model, where the cached answer is
+    exactly what is wanted.
 
-    `max_tokens=None` means `RLM_MAX_TOKENS` if set, else `DEFAULT_MAX_TOKENS`:
-    an explicit flag wins over the environment, and the environment over ours.
+    `max_tokens=None` means `RLM_MAX_TOKENS` if set, else `DEFAULT_MAX_TOKENS`: an explicit flag
+    wins over the environment, and the environment over ours.
     """
     global _CONFIGURED
     if _CONFIGURED:
@@ -145,30 +143,28 @@ def configure_once(
     from rlm_harness import RLMConfig, configure
 
     dspy.configure_cache(enable_disk_cache=cache, enable_memory_cache=cache)
-    # Pinned on both roles. Unpinned means the server's default -- typically
-    # 1.0 -- and two runs over one file are two samples of an unrecorded
-    # distribution. Set here and not on `dspy.settings.lm`, which is the main
-    # LM alone: the sub LM that `explore` calls was never pinned that way.
+    # Temperature is pinned on both roles. Unpinned, it is the server's default (typically 1.0),
+    # and two runs over one file are two samples of an unrecorded distribution. It is set here
+    # and not on `dspy.settings.lm`, which holds the main LM alone and would leave the sub LM
+    # that `explore` calls unpinned.
     temperature = {"temperature": float(os.environ.get("SC_SENTRY_TEMPERATURE", "0.0"))}
     cfg = replace(
         RLMConfig.from_env(),
         main_lm_kwargs=temperature,
         sub_lm_kwargs=temperature,
-        # The per-LM flag gates dspy's store, so `configure_cache` alone
-        # caches nothing; this carries the switch to both roles.
+        # The per-LM flag gates dspy's store, so `configure_cache` alone caches nothing. This
+        # carries the switch to both roles.
         lm_cache=cache,
-        # Off, as it was before dspy 3.4: on, code in the sandbox may build
-        # predictors that run on the host, charge `max_llm_calls` and are
-        # handed this task's tools, so the budget and the tool boundary would
-        # no longer be this harness's.
+        # Off. When it is on, code in the sandbox may build predictors that run on the host,
+        # charge `max_llm_calls` and are handed this task's tools, so the budget and the tool
+        # boundary would no longer be this harness's.
         sandbox_sub_agents=False,
         max_tokens=resolve_max_tokens(max_tokens),
         max_llm_calls=max_calls,
         max_iterations=max_iterations,
-        # Measured: 4 of 64 calls died as "Failed to produce a valid 'findings'
-        # after 1 attempts" -- the reasoning-model truncation shape, where the
-        # chain-of-thought and the structured answer share one `max_tokens` and
-        # a turn that overruns is cut off mid-JSON.
+        # Without retries, 4 of 64 calls failed as "Failed to produce a valid 'findings' after 1
+        # attempts". That is reasoning-model truncation: the chain of thought and the structured
+        # answer share one `max_tokens`, and a turn that overruns it is cut off mid-JSON.
         max_retries=3,
     )
     configure(cfg)
@@ -205,9 +201,9 @@ def ask(source: str, brief: str) -> Answer:
             try:
                 result = task.run(brief=brief, source=source)
             finally:
-                # Read on failure as well. A call that raised was still made, and what
-                # it spent is spent: a cost that counted only successes would let a
-                # sweep that kept failing report that it cost nothing.
+                # Read on failure as well. A call that raised was still made and what it spent
+                # is spent, and a cost that counted only successes would let a sweep that kept
+                # failing report that it cost nothing.
                 usage_data = dict(getattr(tracker, "usage_data", {}))
     except Exception as failure:
         usage = usage_of(usage_data)

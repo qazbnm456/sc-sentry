@@ -1,15 +1,13 @@
 """Which units to audit, and in what order.
 
-A sweep of the whole corpus is the honest measurement and costs real money, so
-most runs are a slice. The slice is the part worth getting right: the first N
-units of a corpus whose largest class holds 200 of 478 records is a measurement
-of that one class wearing the corpus's name.
+A sweep of the whole corpus is the honest measurement and costs real money, so most runs are a
+slice, and the slice has to be chosen with care. The largest class holds 200 of the corpus's 478
+records, so the first N units of the corpus measure that one class under the corpus's name.
 
-`slice_of` covers every class once before covering any class twice, and is
-deterministic, so two runs of the loop compare. The units are read by the
-benchmark's own `units_from`, which checks each file against the digest its record
-pins, so a checkout that has drifted shortens the slice and says so instead of
-scoring a different text than the one the records locate.
+`slice_of` covers every class once before it covers any class twice, and it is deterministic, so
+two runs of the loop compare. The units are read by the benchmark's own `units_from`, which checks
+each file against the digest its record pins. A checkout that has drifted therefore shortens the
+slice and says so, instead of scoring a different text from the one the records locate.
 """
 
 from __future__ import annotations
@@ -24,11 +22,10 @@ from contract_assay.harness import SourceUnit, units_from
 def slice_of(records_dir: Path, source_root: Path, want: int) -> tuple[list[SourceUnit], list[str]]:
     """Round-robin over the classes, and the units that could not be read.
 
-    `want=0` means every unit that is readable. A unit absent from the checkout, or
-    whose file does not match its pinned digest, is returned in the second list and
-    takes no slot: the checkout is fetched separately and may be partial, and a
-    partial checkout should shorten the slice. What it must not do is shorten it
-    silently, so the caller says how many it got and how many it could not read.
+    `want=0` means every unit that is readable. A unit absent from the checkout, or whose file does
+    not match its pinned digest, is returned in the second list and takes no slot. The checkout is
+    fetched separately and may be partial, and a partial checkout should shorten the slice, though
+    never silently: the caller says how many units it got and how many it could not read.
     """
     positives = [
         record

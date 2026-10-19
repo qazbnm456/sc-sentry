@@ -1,9 +1,8 @@
 """`.env` in the working directory, read into the environment before anything else.
 
-Stdlib only, and deliberately small: `KEY=VALUE` lines, `#` comments, optional
-matching quotes around the value. A variable already set in the environment
-wins, so `RLM_MAIN_MODEL=x sc-sentry audit ...` overrides the file for one run
-instead of being silently overridden by it.
+Stdlib only, and deliberately small: `KEY=VALUE` lines, `#` comments, and optional matching quotes
+around the value. A variable already set in the environment wins, so `RLM_MAIN_MODEL=x sc-sentry
+audit ...` overrides the file for one run instead of being silently overridden by it.
 """
 
 from __future__ import annotations
@@ -17,8 +16,8 @@ __all__ = ["load"]
 def load(path: Path = Path(".env")) -> list[str]:
     """Set each variable the file names and the environment lacks; return their names.
 
-    A missing file is not an error: exporting the variables is equally valid.
-    Values are never printed or returned.
+    A missing file is not an error, because exporting the variables is equally valid. Values are
+    never printed or returned.
     """
     if not path.is_file():
         return []

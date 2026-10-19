@@ -1,10 +1,10 @@
 """The harness as a contract-assay `ModelCaller`: what the benchmark calls when a detector asks.
 
-`contract-assay run` loops over the corpus and the detectors, and when a detector's
-`plan()` returns an instruction it calls `call` below. `plan()` returns `None` for a
-class with no candidate sites in the unit, so for those the harness is never asked
-and the run is a deterministic `clean`. Each detector gets its own call, for its own
-class and file, which is the shape `call_per_class` has in the benchmark's walkthrough.
+`contract-assay run` loops over the corpus and the detectors, and when a detector's `plan()` returns
+an instruction it calls `call` below. `plan()` returns `None` for a class with no candidate sites in
+the unit, so for those the harness is never asked and the run is a deterministic `clean`. Each
+detector gets its own call, for its own class and file, which is the shape `call_per_class` has in
+the benchmark's walkthrough.
 
     contract-assay run \\
         --manifest src/sc_sentry/contract_assay/manifests/access_control.manifest.json \\
@@ -12,20 +12,18 @@ class and file, which is the shape `call_per_class` has in the benchmark's walkt
         --records contract-assay/corpus/records --source-root checkout \\
         --model-caller sc_sentry.contract_assay.caller:call --limit 5 --out run.jsonl
 
-What a call does is `SC_SENTRY_MODE`. `triage`, the default, sends the class's candidate
-functions to the model in one call and keeps the citations the code made. `explore` runs
-the planner with tools instead, which is ten to forty times the tokens. The manifests
-under `manifests/static/` name detectors that ask for no model at all, so they run with
-no caller and no `.env`.
+`SC_SENTRY_MODE` sets what a call does. `triage`, the default, sends the class's candidate functions
+to the model in one call and keeps the citations the code made. `explore` runs the planner with
+tools instead, at ten to forty times the tokens. The manifests under `manifests/static/` name
+detectors that ask for no model at all, so they run with no caller and no `.env`.
 
-The model comes from `.env` in the working directory or the environment, and it is
-read when this module is imported, so a missing `RLM_MAIN_MODEL` ends the command with
-one line instead of failing every unit. The limits that `rlm-harness` takes are set
-once, from the first call: `--max-calls` through `ctx.limits`, and the rest from
-`SC_SENTRY_MAX_ITERATIONS` (6) and `SC_SENTRY_CACHE=1`, and `SC_SENTRY_CANDIDATES` (20)
-is how many candidate functions triage sends. The per-call generation cap is
-`RLM_MAX_TOKENS`, which is not the benchmark's `--max-tokens`: that one is a budget for
-a whole unit.
+The model comes from `.env` in the working directory or from the environment. It is read when this
+module is imported, so a missing `RLM_MAIN_MODEL` ends the command with one line instead of failing
+every unit. The limits that `rlm-harness` takes are set once, from the first call: `--max-calls`
+through `ctx.limits`, and the rest from `SC_SENTRY_MAX_ITERATIONS` (6) and `SC_SENTRY_CACHE=1`.
+`SC_SENTRY_CANDIDATES` (20) is how many candidate functions triage sends. The per-call generation
+cap is `RLM_MAX_TOKENS`, which differs from the benchmark's `--max-tokens`, a budget for a whole
+unit.
 """
 
 from __future__ import annotations
@@ -56,9 +54,8 @@ dotenv.load()
 
 MAIN_MODEL = os.environ.get("RLM_MAIN_MODEL", "")
 if not MAIN_MODEL:
-    # At import, so the command that names this caller ends with one line. Left to the
-    # first call, every unit comes back `transport_failure`, which reads like a harness
-    # that finds nothing.
+    # At import, so the command that names this caller ends with one line. Left to the first call,
+    # every unit would come back `transport_failure`, which reads like a harness that finds nothing.
     raise RuntimeError(
         "RLM_MAIN_MODEL is not set. Copy .env.example to .env in this directory and fill it "
         "in, or export the RLM_* variables."
@@ -77,9 +74,9 @@ def to_findings(
 ) -> tuple[Finding, ...]:
     """The planner's proposals as findings, with the model's confidence as the score.
 
-    A round ranked on bpref needs a score on every finding of a class, and this harness
-    sorts by exactly this number, so dropping it would leave it unrankable on every such
-    round while it already knew the order.
+    A round ranked on bpref needs a score on every finding of a class, and this harness sorts by
+    exactly this number, so dropping it would leave the harness unrankable on every such round
+    although it already knows the order.
     """
     return tuple(
         Finding(
@@ -89,8 +86,8 @@ def to_findings(
                 contract=p.contract,
                 function=p.function,
                 start_line=p.start_line,
-                # A backwards span collapses to its start, so it is not dropped for a
-                # reason that reads as the model's fault.
+                # A backwards span collapses to its start, so it is not dropped for a reason that
+                # reads as the model's fault.
                 end_line=max(p.end_line, p.start_line),
             ),
             quote=p.quote,
@@ -106,11 +103,11 @@ def models_used(
 ) -> tuple[ModelUse, ...]:
     """The `(model, calls, tokens)` rows of one planner run as the run's `ModelUse` entries.
 
-    A row is the sub-model when it is that name, bare or behind a provider prefix, and
-    anything else is charged to the main model so an unexpected name is counted and not
-    lost. When the provider reports no usage at all the planner still made a call, so one
-    call and no tokens is named instead of nothing: a run that names no model is refused,
-    and zero tokens is the sign the benchmark's first check looks for.
+    A row is the sub-model when it carries that name, bare or behind a provider prefix. Anything
+    else is charged to the main model, so an unexpected name is counted and not lost. When the
+    provider reports no usage at all, the planner still made a call, so the run names one call and
+    no tokens instead of nothing: a run that names no model is refused, and zero tokens is the sign
+    the benchmark's first check looks for.
     """
     totals: dict[ModelRole, list[int]] = {}
     for name, calls, tokens in usage:
@@ -131,10 +128,10 @@ def models_used(
 def _triage(detector: Detector, ctx: AnalysisContext) -> ModelReply:
     """The harness's candidate functions, with the model deciding which are instances.
 
-    The citations are the code's, so a finding cannot fail its citation check for a quote the
-    model misread, and the report keeps every candidate: a function the model marked moves up,
-    one it never saw or ruled out stays below. A failed call therefore costs the model's
-    judgement and not the findings, and says so on stderr.
+    The citations are the code's, so a finding cannot fail its citation check for a quote the model
+    misread. The report keeps every candidate: a function the model marked moves up, and one it
+    never saw or ruled out stays below. A failed call therefore costs the model's judgement and not
+    the findings, and the caller says so on stderr.
     """
     vuln = VulnClass(detector.class_id.value)
     limit = DEFAULT_PREDICTIONS_PER_UNIT
@@ -167,10 +164,10 @@ def _warn_over(ctx: AnalysisContext, seconds: float, tokens: int) -> None:
         (tokens, ctx.limits.max_tokens, " tokens"),
     ):
         if spent > limit:
-            # Not enforced here, and not by `contract-assay run`. A round kills or refuses a
-            # call that overruns, so this is how a harness that is too slow or too costly
-            # finds out before the round does. The limits are for a whole unit, and this
-            # is one class of it.
+            # Neither this module nor `contract-assay run` enforces the limits. A round kills or
+            # refuses a call that overruns, so this line is how a harness that is too slow or too
+            # costly finds out before a round does. The limits are for a whole unit, and this is one
+            # class of it.
             print(
                 f"      {spent:.0f}{unit} exceeds the {limit}{unit} a round allows",
                 file=sys.stderr,
@@ -181,8 +178,8 @@ def _warn_over(ctx: AnalysisContext, seconds: float, tokens: int) -> None:
 def call(detector: Detector, spec: ModelTaskSpec, ctx: AnalysisContext) -> ModelReply:
     """One model run for this detector's class over this unit, and what it cost.
 
-    `triage` (the default) reviews the harness's own candidate functions in one call. `explore`
-    is the planner with tools, which investigates and cites what it finds.
+    `triage` (the default) reviews the harness's own candidate functions in one call. `explore` is
+    the planner with tools, which investigates and cites what it finds.
     """
     configure_once(
         max_tokens=None,

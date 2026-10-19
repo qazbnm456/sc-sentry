@@ -1,8 +1,7 @@
 """`sc-sentry-contract-assay run|score`: the benchmark adapter's one command.
 
-`run` sweeps a contract-assay corpus and writes the runs file it scores;
-`score` scores that file against the corpus. Both need the `contract-assay`
-extra; `sc-sentry audit` needs neither.
+`run` sweeps a contract-assay corpus and writes the runs file it scores, and `score` scores that
+file against the corpus. Both need the `contract-assay` extra, and `sc-sentry audit` needs neither.
 """
 
 from __future__ import annotations

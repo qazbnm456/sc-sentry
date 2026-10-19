@@ -1,6 +1,6 @@
 """The contract-assay adapter: the same checks, restated in the benchmark's types.
 
-Skipped when the benchmark is not installed -- it is an optional extra.
+Skipped when the benchmark is not installed, since it is an optional extra.
 """
 
 from __future__ import annotations
@@ -70,8 +70,8 @@ class TestTheDetectors:
         assert len(ids) == len(SENTRY_DETECTORS)
 
     def test_evidence_is_the_harness_candidates(self) -> None:
-        # The adapter adds no judgement: what the benchmark records as
-        # established is exactly what `sc-sentry audit` asks about.
+        # The adapter adds no judgement: what the benchmark records as established is exactly what
+        # `sc-sentry audit` asks about.
         for cls in SENTRY_DETECTORS:
             detector = cls()
             evidence = detector.evidence(a_context(detector))
@@ -150,8 +150,8 @@ class TestTheCaller:
     def test_findings_carry_the_confidence_as_the_score(self, caller: ModuleType) -> None:
         """A round ranked on bpref needs a score on every finding of a class.
 
-        The confidence was used to sort and then dropped, so every finding reached the scorer
-        unscored and every bpref round left the harness unrankable.
+        The harness sorts by the confidence, so the finding has to carry it. Without it every
+        finding reaches the scorer unscored, and every bpref round leaves the harness unrankable.
         """
         detector = Slippage()
         ctx = a_context(detector)
@@ -212,8 +212,8 @@ class TestTheCaller:
     def test_a_class_with_no_candidate_sites_is_never_asked(
         self, caller: ModuleType, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # The harness's own saving: no call is made for a class the file cannot hold, which
-        # is cheaper and the only way to avoid an invented finding.
+        # The harness's own saving: no call is made for a class the file cannot hold, which is
+        # cheaper and the only way to avoid an invented finding.
         def never(source: str, brief: str) -> Answer:
             raise AssertionError("a class with no candidate sites must not reach the planner")
 
@@ -268,8 +268,8 @@ class TestTheTriageCaller:
     def test_the_models_pick_comes_first_and_the_run_names_what_it_cost(
         self, triage_caller: ModuleType, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Two candidate functions in static order (`set`, then `sell`). The model says the second
-        # is the instance and the first is not, so `sell` leads and `set` stays below it.
+        # Two candidate functions in static order (`set`, then `sell`). The model says the second is
+        # the instance and the first is not, so `sell` leads and `set` stays below it.
         seen: list[str] = []
 
         def fake(definition: str, table: str, *, count: int) -> triage.TriageAnswer:
@@ -409,8 +409,8 @@ class TestTheSlice:
     def test_a_file_that_no_longer_matches_its_digest_is_left_out_and_named(
         self, tmp_path: Path
     ) -> None:
-        # Scoring a record's locator against different text is a real number about the wrong
-        # source, so a drifted checkout shortens the slice and says so.
+        # Scoring a record's locator against different text is a real number about the wrong source,
+        # so a drifted checkout shortens the slice and says so.
         records, root = self.a_corpus(tmp_path, {"A": VAULT + "// edited\n"})
         units, missing = slices.slice_of(records, root, 0)
         assert [u.path for u in units] == ["src/B.sol"]

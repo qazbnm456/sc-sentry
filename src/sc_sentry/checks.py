@@ -1,16 +1,15 @@
 """Per class: where it could be, and which citations the class rules out.
 
-The deterministic half of the harness. `candidates` finds the sites a class
-could be at -- a class with none in a unit costs no model call, because a
-planner asked to audit a file with no sites of what it seeks will invent one.
-`rejects` rules out what the class definition does not cover, by **asking the
-candidates** rather than re-deriving the observation: a decision that
-re-derives what an observation established will eventually derive it
-differently, and the two layers then disagree silently.
+This is the deterministic half of the harness. `candidates` finds the sites a class could be at,
+and a class with none in a unit costs no model call, because a planner asked to audit a file with
+no sites of what it seeks will invent one. `rejects` rules out what the class definition does not
+cover by **asking the candidates** rather than re-deriving the observation: a decision that
+re-derives what an observation established will eventually derive it differently, and the two
+layers then disagree silently.
 
-Rejections are deliberately narrow. Rejecting a true finding costs recall with
-no compensating signal; rejecting a false one saves somebody a review. Each
-rejection below is one the class definition settles, not one about likelihood.
+Rejections are deliberately narrow. Rejecting a true finding costs recall with no compensating
+signal, while rejecting a false one saves somebody a review. Each rejection below is one the class
+definition settles, not one about likelihood.
 """
 
 from __future__ import annotations
@@ -53,8 +52,8 @@ def _candidate(predicate: str, site: Site, **detail: object) -> Candidate:
 def _covers(spans: Sequence[Span], start: int, end: int, predicate: str | None = None) -> bool:
     """Whether a candidate overlaps the cited lines.
 
-    Overlap rather than equality: a citation of a whole statement where the
-    candidate is one expression inside it has cited the same thing.
+    Overlap rather than equality: a citation of a whole statement where the candidate is one
+    expression inside it has cited the same thing.
     """
     for span in spans:
         if predicate is not None and span.predicate != predicate:
@@ -77,10 +76,9 @@ def _same_function(parsed: Syntax | None, spans: Sequence[Span], start: int) -> 
 class CandidateFunction:
     """The candidates of one class that sit in one function, and the one worth citing.
 
-    The benchmark locates a defect to a function, and a cap counts findings, so a
-    function holding six candidates should cost one finding and not six. `best` is the
-    candidate that stands for the function: the one `priority` ranks highest, the
-    earliest on a tie.
+    The benchmark locates a defect to a function, and a cap counts findings, so a function
+    holding six candidates should cost one finding and not six. `best` is the candidate that
+    stands for the function: the one `priority` ranks highest, the earliest on a tie.
     """
 
     contract: str | None
@@ -93,9 +91,9 @@ class CandidateFunction:
 class Check:
     """One class: how to find its candidates, and what rules a citation out.
 
-    `rejects` returns the name of what was not established at the citation, or
-    `None` when the citation stands. `priority`, when a class has one, says how likely a
-    candidate is to be an instance, higher first; without it candidates keep source order.
+    `rejects` returns the name of what was not established at the citation, or `None` when the
+    citation stands. `priority`, when a class has one, says how likely a candidate is to be an
+    instance, higher first. Without it, candidates keep source order.
     """
 
     vuln: VulnClass
@@ -148,8 +146,8 @@ def _covered(what: str) -> Callable[[Syntax | None, Sequence[Span], int, int], s
 def _reentrancy_rejects(
     _: Syntax | None, spans: Sequence[Span], start: int, end: int
 ) -> str | None:
-    # Either end of the pair is a legitimate citation: the call is what has to
-    # move, and the write is what has to move before it.
+    # Either end of the pair is a legitimate citation: the call is what has to move, and the
+    # write is what has to move before it.
     if _covers(spans, start, end, "state_write_after_an_external_call") or _covers(
         spans, start, end, "external_call"
     ):
@@ -163,8 +161,8 @@ def _reentrancy_rejects(
 def _oracle_rejects(
     parsed: Syntax | None, spans: Sequence[Span], start: int, end: int
 ) -> str | None:
-    # The skill says to cite the line that USES the value, which may be below
-    # the read, so the function is the unit of agreement here, not the line.
+    # The skill says to cite the line that USES the value, which may be below the read, so the
+    # function is the unit of agreement here, not the line.
     if parsed is None:
         return None
     if _same_function(parsed, spans, start) or _covers(spans, start, end):
@@ -181,8 +179,8 @@ def _oracle_rejects(
 def _slippage_rejects(
     parsed: Syntax | None, spans: Sequence[Span], start: int, end: int
 ) -> str | None:
-    # The bound may be computed above the call, and the skill says to cite the
-    # computation. Same function is the agreement.
+    # The bound may be computed above the call, and the skill says to cite the computation, so a
+    # citation in the same function agrees.
     if _same_function(parsed, spans, start) or _covers(spans, start, end):
         return None
     return "exchange_call_in_this_function"

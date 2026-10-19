@@ -1,13 +1,13 @@
 """The harness's checks, as contract-assay `Detector`s: one per class.
 
-A detector is the part of a harness the benchmark scores *through*. It does not
-call a model -- `plan()` says what to ask and the runner asks -- so what lives
-here is the deterministic half, restated in the benchmark's types:
+A detector is the part of a harness the benchmark scores *through*. It does not call a model:
+`plan()` says what to ask, and the runner asks. What lives here is therefore the deterministic half,
+restated in the benchmark's types:
 
-- `evidence()` is `sc_sentry.checks`'s candidates, as `EvidenceRef`s;
-- `verdict()` is `sc_sentry.checks`'s rejection, **asking the evidence it was
-  given** rather than re-deriving the observation, so the benchmark's record of
-  what was established and the verdict cannot disagree.
+- `evidence()` is `sc_sentry.checks`'s candidates, as `EvidenceRef`s.
+- `verdict()` is `sc_sentry.checks`'s rejection. It **asks the evidence it was given** rather than
+  deriving the observation again, so the benchmark's record of what was established and the verdict
+  cannot disagree.
 
 Nothing is decided here that `sc-sentry audit` does not also decide.
 """
@@ -43,10 +43,10 @@ def to_benchmark_findings(
 ) -> tuple[Finding, ...]:
     """The harness's findings as the benchmark's, scored by position.
 
-    The list is already in the order the harness stands behind, so a finding's score is how
-    far from the end it sits. That keeps the order for a round ranked on bpref, which needs a
-    score on every finding of a class, without inventing a confidence the harness never had
-    for the ones no model looked at.
+    The list is already in the order the harness stands behind, so a finding's score is how far
+    from the end it sits. That keeps the order for a round ranked on bpref, which needs a score on
+    every finding of a class, without inventing a confidence the harness never had for the findings
+    no model looked at.
     """
     count = len(findings)
     return tuple(
@@ -68,12 +68,12 @@ def to_benchmark_findings(
 
 
 class _Base(Detector):
-    """Shared plumbing, and it really does declare none of the three fields.
+    """Shared plumbing, which deliberately declares none of the three identity fields.
 
-    `detector_id`, `class_id` and `api_version` are declared all together or not
-    at all, and this class is not an entry point, so it declares none. It also
-    does not declare `level`: that is a property derived from `class_id`, and a
-    class attribute here would shadow it and report every class at one level.
+    `detector_id`, `class_id` and `api_version` are declared all together or not at all, and this
+    class is not an entry point, so it declares none. It does not declare `level` either: that is a
+    property derived from `class_id`, and a class attribute here would shadow it and report every
+    class at one level.
     """
 
     @property
@@ -100,9 +100,9 @@ class _Base(Detector):
     def plan(self, ctx: AnalysisContext, evidence: Sequence[EvidenceRef]) -> ModelTaskSpec | None:
         """The brief for this class, or nothing when the unit holds no candidates.
 
-        `None` when `evidence()` found nothing to reason about: a call not made
-        is budget left for the next unit, and a planner asked to audit a file
-        with no sites of the class will invent one.
+        `None` when `evidence()` found nothing to reason about: a call not made is budget left for
+        the next unit, and a planner asked to audit a file with no sites of the class will invent
+        one.
         """
         if not evidence:
             return None
@@ -180,10 +180,10 @@ class InsecureRandomness(_Base):
 class _Static(_Base):
     """The same checks with no model: `propose()` asserts the candidate functions.
 
-    This is the harness's own control group. It asks for no model (`plan()` returns `None`),
-    so `contract-assay run` needs no caller, and what it scores is what the checks find and
-    order, at the benchmark's default cap. A figure from the model-backed detectors means
-    something only beside this one.
+    This is the harness's own control group. It asks for no model (`plan()` returns `None`), so
+    `contract-assay run` needs no caller, and it scores what the checks find and how they order it,
+    at the benchmark's default cap. A figure from the model-backed detectors means something only
+    beside this one.
     """
 
     def plan(self, ctx: AnalysisContext, evidence: Sequence[EvidenceRef]) -> ModelTaskSpec | None:

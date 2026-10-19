@@ -1,13 +1,11 @@
 """Score a runs file and print what the figures rest on.
 
-Four columns per class, and the last two are the point. A recall figure alone
-rewards proposing everything; the queue is what that costs -- every entry is
-somebody's afternoon before precision exists for its class -- and the
-unverifiable count is how many claims measured nothing at all.
+Each class gets four columns, and the last two matter most. A recall figure alone rewards proposing
+everything, and the queue is what that costs: every entry is somebody's afternoon of judging before
+precision exists for its class. The unverifiable count is how many claims measured nothing at all.
 
-`reach` is the honest denominator: positive records **in the units actually
-scored**, not in the whole corpus. Dividing by the corpus would report a slice
-as a sweep.
+`reach` is the honest denominator: positive records **in the units actually scored**, not in the
+whole corpus. Dividing by the corpus would report a slice as a sweep.
 """
 
 from __future__ import annotations
@@ -35,9 +33,9 @@ def main(argv: list[str] | None = None) -> int:
         "--source-root",
         type=Path,
         required=True,
-        help="Where `contract-assay fetch --source-root` put the pinned sources. "
-        "A run scored against a different checkout than it audited is scored "
-        "against different text, and every quote will fail to verify.",
+        help="Where `contract-assay fetch --source-root` put the pinned sources. A run scored "
+        "against a different checkout from the one it audited is scored against different text, "
+        "and every quote then fails to verify.",
     )
     parser.add_argument(
         "--predictions-per-unit",
@@ -75,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{len(runs)} run(s) over {len(scored)} unit(s)\n")
     print(
-        "`hit` counts EXACT and FUNCTION strength only -- the default floor. `file` is\n"
+        "`hit` counts EXACT and FUNCTION strength only, which is the default floor. `file` is\n"
         "shown apart because a file-strength match means the prediction was somewhere\n"
         "else in a file that happens to contain a defect of this class, which is the\n"
         "scoring this benchmark exists to refuse.\n"

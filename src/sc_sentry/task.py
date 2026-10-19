@@ -1,24 +1,21 @@
-"""The task: one class, one unit, a planner with a parser and eight skills.
+"""The task: one class, one unit, and a planner with a parser and eight skills.
 
-Built on `rlm-harness` because the job is exactly what an LM-coordination
-framework is for -- a planner that decides what to look at next, sub-models that
-read, tools that answer precisely, and a validated structured result at the end.
-The first attempt at this failed for the opposite reason to the obvious one: not
-because a planner is expensive, but because it was given nothing to plan with.
-A prose instruction and a source string leave a planner reading and guessing;
-the same planner with `sites.tools_for` under it asks and is answered.
+Built on `rlm-harness` because the job is what an LM-coordination framework is for: a planner that
+decides what to look at next, sub-models that read, tools that answer precisely, and a validated
+structured result at the end. What a planner needs most is something to plan with. Given a prose
+instruction and the source as a string, it reads and guesses; with `sites.tools_for` under it, it
+asks and is answered.
 
 Two things the skills carry that no tool can:
 
-- **what each class is**, including the shapes that look like it and are not,
-  which is where precision comes from;
-- **how to cite**, which is where recall comes from. A quote that is not at the
-  locator is discarded before it is scored, and the run then reads as a detector
-  that found nothing rather than as one that was wrong.
+- **what each class is**, including the shapes that look like it and are not, which is where
+  precision comes from;
+- **how to cite**, which is where recall comes from. A quote that is not at the locator is
+  discarded before it is scored, and the run then reads as a detector that found nothing rather
+  than as one that was wrong.
 
-The catalogue is injected at startup (`render_skills_manifest`) rather than
-discovered by a tool call, so the planner never spends a turn finding out what
-it knows.
+The catalogue is injected at startup (`render_skills_manifest`) rather than discovered by a tool
+call, so the planner never spends a turn finding out what it knows.
 """
 
 from __future__ import annotations

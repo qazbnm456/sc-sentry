@@ -35,8 +35,8 @@ Predicates
 A restricted function that only copies parameters into state (a configuration setter), or only
 forwards to one helper in a single statement, is the control working as designed and is not listed.
 
-Ordering features (WEIGHTS: ten numbers set by hand from the reasoning below; dev was used to drop
-two features, soften one, size one)
+Ordering features (WEIGHTS: ten numbers set by hand from the reasoning below, then checked on the
+development part, which dropped two features, softened one and sized one)
   moves_value          value, tokens, supply or authority leave: what a missing check costs
   strong_primitive     a low-level call or selfdestruct: the caller may steer arbitrary execution
   external_calls       calls into other contracts (up to four): authority exercised elsewhere on
@@ -796,8 +796,7 @@ def _facts(parsed: Syntax) -> list[_Fn]:
             continue
         if c.receiver is None or c.receiver in ("this", "super"):
             if c.callee[:1].isupper():
-                # an event, a custom error, a struct or a type conversion: functions are
-                # lowerCamelCase
+                # an event, error, struct or type conversion: functions are lowerCamelCase
                 continue
             if c.callee in declared:
                 fn.helper_calls.append(c)

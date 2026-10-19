@@ -1,17 +1,13 @@
-"""Tools the planner calls, over the benchmark's own parser.
+"""Tools the planner calls in `explore`, over the parser in `sc_sentry.solidity`.
 
-This is the half of the harness that makes a recursive planner the right shape
-for the task rather than the wrong one. A planner handed a prose instruction and
-a string has no way to make progress except to read the string and guess; the
-same planner with a parser under it asks precise questions, gets precise
-answers, and converges in a turn or two.
+These tools are what let a recursive planner make progress on the task. A planner handed a prose
+instruction and a string can only read the string and guess. The same planner with a parser under it
+asks precise questions, gets precise answers, and converges in a turn or two.
 
-Every site carries `text` -- the **exact** source it spans -- and that is what
-decides the score. A finding is scored only if the harness can re-read the
-source at the locator and find the quote, and a model transcribing from memory
-is wrong about half the time. These tools hand back the exact text with the
-exact lines beside it, so the planner quotes what it was given rather than what
-it remembers.
+Every site carries `text`, the **exact** source it spans, and that text decides the score. A finding
+is scored only if the harness can re-read the source at the locator and find the quote, and a model
+transcribing from memory is wrong about half the time. These tools hand back the exact text with the
+exact lines beside it, so the planner quotes what it was given rather than what it remembers.
 
 Lines are 1-indexed and inclusive, matching the locator the benchmark expects.
 """
@@ -27,9 +23,9 @@ from sc_sentry.solidity import Site, Syntax
 def _where(site: Site) -> dict[str, Any]:
     """The four fields a finding needs, straight off the site.
 
-    Returned together, and always the same four, so a planner never has to pair
-    a span from one answer with a quote from another -- which is the mistake
-    that produces a finding whose quote is real and whose lines are not.
+    They are returned together, and always the same four, so a planner never has to pair a span from
+    one answer with a quote from another. That pairing is what produces a finding whose quote is
+    real and whose lines are not.
     """
     return {
         "start_line": site.start_line,

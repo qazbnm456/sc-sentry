@@ -553,8 +553,8 @@ def _handoff_of(call: CallSite, fn: _Fn, declared: frozenset[str]) -> tuple[int,
     if not call.is_bare_statement and (
         not call.arguments or not (words and words[0] in _EFFECT_WORDS)
     ):
-        # its result is used and its name is no verb of change: a read, re-entered through, never
-        # into
+        # its result is used and its name is no verb of change: a read, which code can re-enter
+        # through but never into
         return None
     if re.fullmatch(r"[A-Z]\w*", receiver.strip()):
         # a static call on a library or a contract's own name: code that runs inside this contract
@@ -883,8 +883,7 @@ def candidates(parsed: Syntax) -> list[Candidate]:
             "strength": f["top"],
             "guarded": fn.locked,
         }
-        # the strongest hand-off is the citation of the function, then the first write that follows
-        # it
+        # the strongest hand-off is the function's citation, then the first write that follows it
         for place, h in enumerate(sorted(fn.handoffs, key=lambda h: (-h.strength, h.start))[:3]):
             out.append(
                 Candidate(

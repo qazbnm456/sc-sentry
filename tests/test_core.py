@@ -1,9 +1,8 @@
 """The harness on its own: no benchmark installed, no model called.
 
-Each test pins something a model run depends on and would hide if it broke: a
-class with no check is a class that is never looked for, a candidate missed is
-a question never asked, and a rejected finding dropped from the report is a
-screen nobody can audit.
+Each test pins something a model run depends on and would hide if it broke: a class with no check
+is never looked for, a missed candidate is a question never asked, and a rejected finding dropped
+from the report is a screen nobody can audit.
 """
 
 from __future__ import annotations
@@ -53,8 +52,8 @@ class TestTheClasses:
         assert set(BRIEFS) == set(VulnClass)
 
     def test_the_core_needs_no_benchmark(self) -> None:
-        # The whole point of the split: a person auditing a contract installs
-        # the harness, not a benchmark.
+        # The split exists so that a person auditing a contract installs the harness and no
+        # benchmark.
         code = (
             "import sys, sc_sentry.cli, sc_sentry.audit, sc_sentry.report, sc_sentry.checks;"
             "sys.exit('contract_assay' in sys.modules)"
@@ -89,10 +88,10 @@ class TestTheAudit:
         )
         by_class = {r.vuln: r for r in report.results}
         assert by_class[VulnClass.SLIPPAGE].asked
-        # `block.timestamp` is a chain-state read, so randomness has a candidate
-        # too; the class asked about with none is checked below.
+        # `block.timestamp` is a chain-state read, so randomness has a candidate too. The class
+        # asked about with none is checked below.
         assert asked == [BRIEFS[VulnClass.SLIPPAGE], BRIEFS[VulnClass.INSECURE_RANDOMNESS]]
-        # No price or reserve is read anywhere in VAULT: nothing to ask about.
+        # VAULT reads no price or reserve anywhere, so there is nothing to ask about.
         report = audit(VAULT, "Vault.sol", [VulnClass.ORACLE_INTEGRITY], mode="explore")
         assert (report.results[0].candidates, report.results[0].asked) == (0, False)
         assert len(asked) == 2
@@ -175,8 +174,8 @@ class TestTheFindingsNeedNoModel:
     """`--mode static`: the candidates, one per function, as the control group for the model."""
 
     def test_a_function_with_several_candidates_is_one_entry(self) -> None:
-        # `sell` holds the call and the write after it, and a cap counts findings, so the
-        # function must cost one.
+        # `sell` holds the call and the write after it, and a cap counts findings, so the function
+        # must cost one.
         [entry] = CHECKS[VulnClass.REENTRANCY].functions(VAULT)
         assert (entry.contract, entry.function) == ("Vault", "sell")
         assert len(entry.candidates) > 1
@@ -270,8 +269,8 @@ class TestWhatTheAskCost:
     def test_a_failed_planner_still_reports_what_it_spent(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # A cost that counted only the runs that succeeded would let a sweep that kept
-        # failing report that it had cost nothing.
+        # A cost that counted only the runs that succeeded would let a sweep that kept failing
+        # report that it had cost nothing.
         import contextlib
 
         import dspy

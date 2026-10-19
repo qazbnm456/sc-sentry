@@ -101,8 +101,7 @@ _VALUE_COMPOUNDS = (
     "referencedata",
     "getdy",
 )
-# A leading word that makes a call or a function a write or a lookup of configuration, not a read of
-# a value.
+# A leading word that makes a call or a function a configuration write or lookup, not a value read.
 _CONFIG_VERBS = frozenset(
     {
         "set",
@@ -190,16 +189,17 @@ def _is_value_call(callee: str, receiver: str | None) -> bool:
 
 
 def _passes_signature(c: CallSite) -> bool:
-    """A verify call (not a Merkle proof check) is one that is handed something named a
-    signature."""
+    """A verify call that is handed something named a signature (not a Merkle proof check)."""
     return any(
         {"signature", "sig"} & set(_words(i)) for a in c.arguments for i in _IDENT.findall(a.text)
     )
 
 
 def _citable(text: str) -> bool:
-    """Whether whole lines of this text could be cited: six tokens, one naming something of the
-    file's own."""
+    """Whether whole lines of this text could be cited.
+
+    They need six tokens, and one of them has to name something of the file's own.
+    """
     tokens = _TOKEN.findall(text)
     return len(tokens) >= 6 and any(
         (t[0].isalpha() or t[0] == "_") and t not in _LANGUAGE for t in tokens
@@ -207,8 +207,10 @@ def _citable(text: str) -> bool:
 
 
 def _header(f: FunctionSite) -> Site:
-    """The declaration line(s) of a function, up to its opening brace: a citation, not a whole
-    body."""
+    """The declaration line(s) of a function, up to its opening brace.
+
+    Citing it quotes the declaration and not the whole body.
+    """
     site = f.site
     head = site.text.split("{", 1)[0]
     return replace(
@@ -217,8 +219,10 @@ def _header(f: FunctionSite) -> Site:
 
 
 def _span(f: FunctionSite, site: Site) -> Site:
-    """`site`, widened by whole lines inside its function until it is citable; the declaration if
-    nothing else is."""
+    """`site`, widened by whole lines inside its function until it is citable.
+
+    When nothing inside the function is citable, the declaration is cited instead.
+    """
     rows = f.site.text.split("\n")
     base = f.site.start_line
     lo, hi = site.start_line, site.end_line
@@ -236,8 +240,10 @@ def _span(f: FunctionSite, site: Site) -> Site:
 
 
 def _used(c: CallSite, tests: list[Site]) -> bool:
-    """The call's result takes part in arithmetic or a test: it is inside one, or a name it is bound
-    to is in one."""
+    """Whether the call's result takes part in arithmetic or a test.
+
+    It does when the call sits inside one, or when a name the result is bound to appears in one.
+    """
     mine = [t for t in tests if t.host.function == c.site.host.function]
     if any(t.contains(c.site) for t in mine):
         return True

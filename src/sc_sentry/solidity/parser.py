@@ -1,39 +1,36 @@
 """Syntactic backend: what a Solidity file declares, and where.
 
-This is the floor. It requires no compiler, no dependency resolution and no
-network, so it is available for every source unit regardless of whether the
-project builds. Everything that needs types, data flow or a call graph belongs
-to the semantic backend; everything that needs only "is this symbol declared
-here, and where" belongs here.
+This is the floor. It requires no compiler, no dependency resolution and no network, so it is
+available for every source unit regardless of whether the project builds. Everything that needs
+types, data flow or a call graph belongs to the semantic backend; everything that needs only "is
+this symbol declared here, and where" belongs here.
 
 Why a parser and not a pattern match
 ------------------------------------
-Text matching cannot tell a declaration from a mention of one. These all contain
-the characters of a declaration and none of them declares anything::
+Text matching cannot tell a declaration from a mention of one. These all contain the characters of a
+declaration and none of them declares anything::
 
     // The old function withdraw() used to live here
     /* function drain() external { selfdestruct(x); } */
     require(ok, "function withdraw() reverted");
 
-A verifier built on text matching certifies locations that contain no code,
-which is the opposite of its purpose. It also *rejects* real declarations that
-do not fit the pattern -- a modern `constructor(address owner)` carries no
-visibility keyword and no `function` keyword, so exactly the access-control
-cases most worth annotating are the ones it turns away.
+A verifier built on text matching certifies locations that contain no code, which is the opposite of
+its purpose. It also *rejects* real declarations that do not fit the pattern: a modern
+`constructor(address owner)` carries no visibility keyword and no `function` keyword, so the
+access-control cases most worth annotating are exactly the ones it turns away.
 
-The parser is error-tolerant. A file with a syntax error still yields the
-declarations it could read, which matters because corpus sources are pinned at
-historical commits and may predate or postdate any given grammar revision.
+The parser is error-tolerant. A file with a syntax error still yields the declarations it could
+read, which matters because corpus sources are pinned at historical commits and may predate or
+postdate any given grammar revision.
 
 Why a name is not an identity
 -----------------------------
-Solidity permits overloading, so a function name does not identify a function.
-A contract declaring both ``swap(uint256)`` and ``swap(uint256,address)`` has two
-different functions that a name-keyed index cannot tell apart, and every
-consequence of that confusion runs in the direction this project exists to
-prevent: a record can be verified against the overload it did not mean, and a
-detector pointing at the wrong overload matches ground truth on the name it
-shares. Declarations therefore carry their parameter types.
+Solidity permits overloading, so a function name does not identify a function. A contract declaring
+both ``swap(uint256)`` and ``swap(uint256,address)`` has two different functions that a name-keyed
+index cannot tell apart, and every consequence of that confusion runs in the direction this project
+exists to prevent: a record can be verified against the overload it did not mean, and a detector
+pointing at the wrong overload matches ground truth on the name it shares. Declarations therefore
+carry their parameter types.
 """
 
 from __future__ import annotations
@@ -80,13 +77,13 @@ class DeclarationKind(StrEnum):
         )
 
 
-# Nodes whose presence we care about, and the kind each maps to. The grammar
-# emits a single node type for `receive` and `fallback`; both are unnamed in the
-# source, so a synthetic name is supplied below.
+# Nodes whose presence we care about, and the kind each maps to. The grammar emits a single node
+# type for `receive` and `fallback`; both are unnamed in the source, so a synthetic name is supplied
+# below.
 #
-# Public because the shape-query layer needs the same answer to "is this node a
-# declaration, and of what kind". Two modules maintaining private copies of that
-# question is how they come to disagree about it.
+# Public because the shape-query layer needs the same answer to "is this node a declaration, and of
+# what kind". Two modules maintaining private copies of that question is how they come to disagree
+# about it.
 NODE_KINDS: dict[str, DeclarationKind] = {
     "contract_declaration": DeclarationKind.CONTRACT,
     "library_declaration": DeclarationKind.LIBRARY,
@@ -128,20 +125,19 @@ class Declaration:
     def signature(self) -> str:
         """The declaration as written, e.g. ``swap(uint256,address)``.
 
-        This is the *declared* form, not the ABI-canonical one. `uint` and
-        `uint256` are the same ABI type but different declared text, so this
-        string must not be fed to a selector computation, which needs real
-        canonicalisation (`uint` widened, enums to `uint8`, structs to tuples).
+        This is the *declared* form, not the ABI-canonical one. `uint` and `uint256` are the same
+        ABI type but different declared text, so this string must not be fed to a selector
+        computation, which needs real canonicalisation (`uint` widened, enums to `uint8`, structs to
+        tuples).
 
-        It is nonetheless sufficient for the job it is used for -- telling two
-        declarations in the same file apart -- because the compiler rejects a
-        contract that declares the same signature twice. Two overloads that
-        survive compilation necessarily differ in their parameter types, and
-        therefore in this string.
+        It is nonetheless sufficient for the job it is used for, telling two declarations in the
+        same file apart, because the compiler rejects a contract that declares the same signature
+        twice. Two overloads that survive compilation necessarily differ in their parameter types,
+        and therefore in this string.
 
-        Degenerate for a type declaration, which has no parameters: a contract
-        named `Vault` yields `Vault()`. Reach for it through `callables`, which
-        only ever returns function-like declarations.
+        Degenerate for a type declaration, which has no parameters: a contract named `Vault` yields
+        `Vault()`. Reach for it through `callables`, which only ever returns function-like
+        declarations.
         """
         return f"{self.names[0]}({','.join(self.parameter_types)})"
 
@@ -153,10 +149,9 @@ class Declaration:
 def parse_bytes(data: bytes) -> Tree:
     """Parse UTF-8 source bytes. Never raises on malformed input.
 
-    Callers pass bytes rather than `str` and keep them, because every node
-    position is a byte offset into exactly these bytes. Re-encoding the same
-    `str` a second time to read a node's text is safe only as long as both
-    encodings agree, and a caller that slices a different buffer gets silently
+    Callers pass bytes rather than `str` and keep them, because every node position is a byte offset
+    into exactly these bytes. Re-encoding the same `str` a second time to read a node's text is safe
+    only as long as both encodings agree, and a caller that slices a different buffer gets silently
     shifted text.
     """
     return _parser().parse(data)
@@ -174,9 +169,8 @@ def _parser() -> Parser:
         ) from exc
 
     with warnings.catch_warnings():
-        # tree-sitter-solidity still hands back an int rather than a capsule.
-        # Harmless, and not ours to fix; suppressed so it does not surface on
-        # every parse.
+        # tree-sitter-solidity hands back an int rather than a capsule. The warning is harmless and
+        # not ours to fix, so it is suppressed rather than shown on every parse.
         warnings.simplefilter("ignore", DeprecationWarning)
         language = Language(tree_sitter_solidity.language())
 
@@ -187,10 +181,9 @@ def _parser() -> Parser:
 class DeclarationIndex:
     """Every declaration in one source file.
 
-    `parsed` is False when the file yielded nothing a parser could recognise.
-    Callers that verify ground truth must treat that as a refusal to confirm,
-    not as an absence of the symbol: "I could not read this" and "this is not
-    here" are different answers, and only the second is evidence.
+    `parsed` is False when the file yielded nothing a parser could recognise. Callers that verify
+    ground truth must treat that as a refusal to confirm, not as an absence of the symbol: "I could
+    not read this" and "this is not here" are different answers, and only the second is evidence.
     """
 
     declarations: tuple[Declaration, ...]
@@ -212,15 +205,13 @@ class DeclarationIndex:
     ) -> list[Declaration]:
         """Function-like declarations matching `name`, optionally constrained.
 
-        `within` restricts to declarations whose span intersects a line range;
-        `inside_type` restricts to those lexically inside a named contract,
-        library or interface; `signature` restricts to one overload, given as
-        the declared form (see `Declaration.signature`).
+        `within` restricts to declarations whose span intersects a line range; `inside_type`
+        restricts to those lexically inside a named contract, library or interface; `signature`
+        restricts to one overload, given as the declared form (see `Declaration.signature`).
 
-        More than one result means the name is overloaded across whatever
-        constraints were given. A caller that needs to identify a single
-        function must narrow further or treat the name as ambiguous -- picking
-        the first would silently choose an overload.
+        More than one result means the name is overloaded across whatever constraints were given. A
+        caller that needs to identify a single function must narrow further or treat the name as
+        ambiguous, because picking the first would silently choose an overload.
         """
         found = [d for d in self.declarations if not d.kind.is_type and d.is_named(name)]
         if within is not None:
@@ -244,15 +235,14 @@ def _name_of(node: Node, source: bytes, kind: DeclarationKind) -> tuple[str, ...
 def _parameter_types(node: Node, source: bytes) -> tuple[str, ...]:
     """Declared parameter types, in order.
 
-    The grammar hangs `parameter` nodes directly off the definition rather than
-    wrapping them in a parameter list, so they are read from the children.
+    The grammar hangs `parameter` nodes directly off the definition rather than wrapping them in a
+    parameter list, so they are read from the children.
 
-    Runs of whitespace inside a type are collapsed to one space rather than
-    removed. Removing them would fuse adjacent keywords in a function type into
-    a single token, and collapsing is enough: the two spellings this leaves
-    distinct, `mapping(address => uint256)` and `mapping(address=>uint256)`,
-    cannot both appear as overloads of one function, because the compiler sees
-    one signature and rejects the duplicate.
+    Runs of whitespace inside a type are collapsed to one space rather than removed. Removing them
+    would fuse adjacent keywords in a function type into a single token, and collapsing is enough:
+    the two spellings this leaves distinct, `mapping(address => uint256)` and
+    `mapping(address=>uint256)`, cannot both appear as overloads of one function, because the
+    compiler sees one signature and rejects the duplicate.
     """
     found: list[str] = []
     for child in node.children:
@@ -260,11 +250,10 @@ def _parameter_types(node: Node, source: bytes) -> tuple[str, ...]:
             continue
         type_node = child.child_by_field_name("type")
         if type_node is None:  # pragma: no cover - no current grammar path reaches it
-            # Unreachable with the pinned grammar, which attaches a type to every
-            # `parameter` node it emits -- even on malformed input, where it reads
-            # a bare name as a type. Kept because this module promises never to
-            # raise on malformed input, and corpus sources are pinned at
-            # historical commits across grammar revisions.
+            # Unreachable with the pinned grammar, which attaches a type to every `parameter` node
+            # it emits, even on malformed input, where it reads a bare name as a type. Kept because
+            # this module promises never to raise on malformed input, and corpus sources are pinned
+            # at historical commits across grammar revisions.
             continue
         text = source[type_node.start_byte : type_node.end_byte].decode("utf-8", "replace")
         found.append(" ".join(text.split()))
@@ -274,9 +263,8 @@ def _parameter_types(node: Node, source: bytes) -> tuple[str, ...]:
 def index_source(source: str) -> DeclarationIndex:
     """Parse `source` and index every declaration it contains.
 
-    Never raises on malformed input: a file the grammar cannot fully read still
-    yields whatever declarations it recovered, with `parsed` reflecting whether
-    anything was recognised at all.
+    Never raises on malformed input: a file the grammar cannot fully read still yields whatever
+    declarations it recovered, with `parsed` reflecting whether anything was recognised at all.
     """
     if not source.strip():
         return DeclarationIndex(declarations=(), parsed=False)
@@ -285,8 +273,8 @@ def index_source(source: str) -> DeclarationIndex:
     tree = parse_bytes(data)
 
     found: list[Declaration] = []
-    # Explicit stack rather than recursion: contract sources are occasionally
-    # deep enough to matter, and a parse must not be able to exhaust the stack.
+    # Explicit stack rather than recursion: contract sources are occasionally deep enough to matter,
+    # and a parse must not be able to exhaust the stack.
     stack: list[tuple[Node, str | None]] = [(tree.root_node, None)]
     while stack:
         node, parent = stack.pop()

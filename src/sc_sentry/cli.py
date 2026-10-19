@@ -28,8 +28,7 @@ def _no_retries() -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="sc-sentry",
-        description="Hunt vulnerabilities in Solidity files with an RLM planner, "
-        "citing exact lines.",
+        description="Hunt vulnerabilities in Solidity files and cite the exact lines.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -39,8 +38,8 @@ def main(argv: list[str] | None = None) -> int:
         "--class",
         dest="classes",
         action="append",
-        help="A class to hunt, or several comma-separated; repeatable. Omitted, every "
-        "class. `sc-sentry classes` lists them.",
+        help="A class to hunt, or several comma-separated; repeatable. Without it, every class "
+        "is hunted. `sc-sentry classes` lists them.",
     )
     audit.add_argument("--format", choices=["json", "sarif"], default="json")
     audit.add_argument("--out", type=Path, help="Write here instead of stdout.")
@@ -48,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         "--max-tokens",
         type=int,
         default=None,
-        help="Per-call generation cap. Omitted, RLM_MAX_TOKENS if set, else 32768.",
+        help="Per-call generation cap. Default: RLM_MAX_TOKENS if set, else 32768.",
     )
     audit.add_argument(
         "--mode",
@@ -63,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         "--limit",
         type=int,
         default=9,
-        help="Findings kept per class in triage and static modes. Default 9, the benchmark's.",
+        help="Findings kept per class in triage and static modes. Default 9, the benchmark's cap.",
     )
     audit.add_argument(
         "--candidates",
@@ -103,8 +102,8 @@ def main(argv: list[str] | None = None) -> int:
         "--budget-parallel",
         action="store_true",
         help="triage only: with a budget, send the classes' calls side by side instead of one "
-        "after another. Faster on an endpoint that answers several at once, wasteful behind a "
-        "relay that serves one at a time.",
+        "after another. That is faster on an endpoint that answers several at once and wasteful "
+        "behind a relay that serves one at a time.",
     )
     audit.add_argument("--max-calls", type=int, default=4, help="Model calls per class. Default 4.")
     audit.add_argument(
@@ -222,12 +221,12 @@ def run() -> None:
     """The command's entry point: report, then leave without the interpreter's own shutdown.
 
     A host with a wall clock records a unit whose process never exits as a timeout, report or no
-    report. In the dry run a unit's report was complete, 25 findings, and the process sat waiting
-    on a lock until it was killed at 590 seconds, so the whole unit counted as invalid. The
-    interpreter's exit runs handlers that other libraries register (litellm flushes its logging
-    queue and closes its clients), and with a call abandoned at the deadline still being unwound
-    by a daemon thread they can wait on each other. By the time `main` returns everything this
-    command writes is written and closed, so there is nothing for those handlers to save.
+    report, and the whole unit then counts as invalid. The interpreter's exit runs handlers that
+    other libraries register (litellm flushes its logging queue and closes its clients), and while
+    a daemon thread is still unwinding a call abandoned at the deadline, they can wait on each other
+    indefinitely: a process with a complete report of 25 findings has waited on a lock until the
+    host killed it at 590 seconds. By the time `main` returns, everything this command writes is
+    written and closed, so there is nothing for those handlers to save.
     """
     try:
         code = main()

@@ -1,9 +1,9 @@
 """Denial of service: a path an outsider can make permanently unusable for somebody else.
 
-`candidates(parsed)` finds the sites and `priority(ref)` orders the functions that hold them.
-A function is a candidate only if it holds a way to fail that somebody else can bring about: a
-loop with no constant bound, a call into another contract, or a revert over a balance. A revert
-condition on parameters or on this contract's own flags is not enough by itself.
+`candidates(parsed)` finds the sites and `priority(ref)` orders the functions that hold them. A
+function is a candidate only if it holds a way to fail that somebody else can bring about: a loop
+with no constant bound, a call into another contract, or a revert over a balance. A revert condition
+on parameters or on this contract's own flags is not enough by itself.
 """
 
 from __future__ import annotations

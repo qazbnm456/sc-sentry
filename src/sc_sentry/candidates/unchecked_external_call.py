@@ -2,11 +2,11 @@
 
 `candidates(parsed)` finds the sites and `priority(ref)` orders the functions that hold them. A
 statement that calls something is not yet a candidate, because most statement calls return nothing
-(`require`, `push`, a setter on a registry): a call is listed when it can return a status the
-caller then drops. The strongest are the ones the language says return a flag, a low-level call
-or a `send` whose boolean is never read, then a token `transfer`, `transferFrom` or `approve`
-whose `bool` is dropped, then a function this unit declares with a `returns` clause. A call into
-a contract this unit only imports is listed last, since nothing here says what it returns.
+(`require`, `push`, a setter on a registry): a call is listed when it can return a status the caller
+then drops. The strongest are the ones the language says return a flag, a low-level call or a `send`
+whose boolean is never read, then a token `transfer`, `transferFrom` or `approve` whose `bool` is
+dropped, then a function this unit declares with a `returns` clause. A call into a contract this
+unit only imports is listed last, since nothing here says what it returns.
 """
 
 from __future__ import annotations

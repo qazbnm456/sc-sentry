@@ -59,9 +59,9 @@ FORMAT_OVERHEAD_TOKENS = 500
 MIN_CANDIDATES = 3
 """The fewest candidates worth a call: fewer than this and the order is nearly the whole answer."""
 MIN_COMPLETION_TOKENS = 4000
-"""A reasoning model's chain of thought shares the completion cap with its answer, and measured
-it spends 2,600 to 5,000 tokens before the verdicts. Below this the answer is cut off
-mid-verdict, which parses as no answer and costs what a whole one does."""
+"""A reasoning model's chain of thought shares the completion cap with its answer, and it spends
+2,600 to 5,000 tokens before the verdicts. Below this the answer is cut off mid-verdict, which
+parses as no answer and costs what a whole one does."""
 MIN_SECONDS = 3.0
 """Below this a call would be abandoned before it could answer."""
 MIN_CALL_SECONDS = 8.0
@@ -228,9 +228,9 @@ def triage_findings(
     unseen (past `sent`, or given no verdict) in the order the finders ranked them, and a function
     the model ruled out last, with its reason. With `withdraw` it is also marked `rejected`, which
     a report writes as a suppressed result, so a reader can see what it took and a host that
-    reads only standing results does not count it. That is off by default: measured on the
-    validation part, withdrawing what the model ruled out cost 57 of 84 corpus matches at the
-    function floor and the model was as sure of the ones it was wrong about as of the rest.
+    reads only standing results does not count it. That is off by default, because on the
+    validation part withdrawing what the model ruled out cost 57 of 84 corpus matches at the
+    function floor, and the model was as sure of the ones it was wrong about as of the rest.
     """
     chosen: list[tuple[int, Finding]] = []
     unseen: list[Finding] = []

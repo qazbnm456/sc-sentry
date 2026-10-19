@@ -1,10 +1,9 @@
 """The per-class finders on small sources: what each lists, and what each leaves alone.
 
-The finders were tuned against a public corpus, and these do not repeat that. They pin the
-shapes each class is about, so a change that stops listing the textbook case, or starts
-listing a function that has nothing to do with the class, fails here without needing the
-corpus. Every source is a few lines, because a finder that needs a page of context to
-fire is a finder nobody can reason about.
+The finders were tuned against a public corpus, and these tests do not repeat that tuning. They pin
+the shapes each class is about, so a change that stops listing the textbook case, or starts listing
+a function that has nothing to do with the class, fails here without the corpus. Every source is a
+few lines long, because nobody can reason about a finder that needs a page of context to fire.
 """
 
 from __future__ import annotations
@@ -191,8 +190,8 @@ def test_every_candidate_is_cited_inside_a_function_at_whole_lines(case: str) ->
 
 
 def test_a_class_with_a_priority_lists_the_likelier_function_first() -> None:
-    # Two functions both qualify. The one paying out inside a loop over a growing array is
-    # what the class is about, and the one that merely calls out once is a weaker candidate.
+    # Two functions both qualify. The one paying out inside a loop over a growing array is what the
+    # class is about, and the one that calls out once is a weaker candidate.
     source = (
         "contract A {\n    address[] users;\n    IToken token;\n"
         "    function ping(address to) external {\n        token.notify(to);\n    }\n"

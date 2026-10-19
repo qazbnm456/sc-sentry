@@ -1,16 +1,14 @@
 """What `sc-sentry audit` writes: its own JSON, or SARIF 2.1.0.
 
-SARIF is the OASIS standard for static-analysis results, and what GitHub code
-scanning and most security tooling read, so a report can go wherever such
-reports go without an adapter. Two mappings are worth stating:
+SARIF is the OASIS standard for static-analysis results, and it is what GitHub code scanning and
+most security tooling read, so a report can go wherever such reports go without an adapter. Two
+mappings are worth stating:
 
-- A finding the class definition rejected is emitted as a **suppressed** result
-  with the reason as its justification -- SARIF's own way of saying "reported,
-  and not standing" -- rather than dropped. A reader judging whether the screen
-  is too strict needs to see what it took.
-- The model's confidence (1-5) is the result's `rank` (20-100), SARIF's field
-  for "how much this result should be believed", and is also kept verbatim in
-  `properties`.
+- A finding the class definition rejected is emitted as a **suppressed** result with the reason as
+  its justification, which is SARIF's own way of saying "reported, and not standing", rather than
+  dropped. A reader judging whether the screen is too strict needs to see what it took.
+- The model's confidence (1-5) is the result's `rank` (20-100), SARIF's field for "how much this
+  result should be believed", and is also kept verbatim in `properties`.
 """
 
 from __future__ import annotations

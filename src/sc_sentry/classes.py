@@ -1,6 +1,6 @@
 """The vulnerability classes this harness hunts, by name.
 
-Plain strings a person can type at the command line. The spellings are the ones
+The names are plain strings a person can type at the command line. The spellings are the ones
 most smart-contract taxonomies already use, so a report reads without a key.
 """
 

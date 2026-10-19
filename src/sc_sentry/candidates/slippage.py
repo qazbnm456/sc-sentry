@@ -20,15 +20,15 @@ Predicates:
   price_conversion     an amount scaled (multiplied or divided) by a price or rate the function read
                        from an oracle-like call, in a function that is not itself a price accessor
 
-Keyed on Solidity shape and common domain vocabulary; identifiers are split into
+The finder keys on Solidity shape and common domain vocabulary, and splits identifiers into
 camelCase/underscore tokens. The word "slippage" stands on its own. Min/max-amount, bips and
 price-limit names count in a function that exchanges, changes liquidity, mints or redeems, or
 measures a receipt by a balance difference, or when set to a literal zero; ALL_CAPS constants
 (denominators, protocol caps) never count. Every site is widened to a construct whose whole lines
 are a substantive citation (at least six tokens), never past its function.
 
-Uses Syntax internals (`_nodes`, `_site`, `_tree`, `_data`) for the tree-level queries the public
-API lacks.
+It uses Syntax internals (`_nodes`, `_site`, `_tree`, `_data`) for the tree-level queries the
+public API lacks.
 """
 
 from __future__ import annotations
@@ -117,8 +117,10 @@ _NOT_AN_OPERATION = {
 
 
 def _is_exchange(callee: str) -> bool:
-    """A callee that trades, changes liquidity, or joins/exits a pool (not a cast or a struct
-    constructor)."""
+    """A callee that trades, changes liquidity, or joins/exits a pool.
+
+    A cast or a struct constructor is not one.
+    """
     if callee[:1].isupper():
         return False
     t = set(_tokens(callee))
@@ -151,8 +153,10 @@ _TOKEN_ISSUE = {"mint", "_mint", "burn", "_burn", "safeMint", "_safeMint"}
 
 
 def _is_mover(callee: str, receiver: str | None = None) -> bool:
-    """A call that mints, burns, redeems or converts; an unqualified ERC20-style mint or burn is
-    bookkeeping."""
+    """A call that mints, burns, redeems or converts.
+
+    An unqualified ERC20-style mint or burn is bookkeeping, and does not count.
+    """
     t = set(_tokens(callee))
     if callee[:1].isupper() or not t & _MOVERS or t & _NOT_AN_OPERATION:
         return False
@@ -422,8 +426,7 @@ def candidates(parsed: Syntax) -> list[Candidate]:
             continue
         names = price_names.get(a.site.host)
         if set(_tokens(a.site.host.function or "")) & _PRICE:
-            # the function is itself a price accessor: it defines a price rather than converting an
-            # amount
+            # A price accessor defines a price and converts no amount.
             continue
         if names and names & set(_IDENT.findall(a.site.text)):
             add("price_conversion", a.site)
@@ -455,6 +458,8 @@ def candidates(parsed: Syntax) -> list[Candidate]:
 
 
 def priority(ref: Candidate) -> float:
-    """Functions with more distinct kinds of signal first; within a function, the most specific
-    site."""
+    """Functions with more distinct kinds of signal first.
+
+    Within a function, the most specific site comes first.
+    """
     return float(ref.detail.get("fn_score", 0.0)) * 100 + _SITE_WEIGHT.get(ref.predicate, 0)

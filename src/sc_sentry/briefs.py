@@ -1,10 +1,9 @@
 """One brief per class: what to look for, and which skill and tools answer it.
 
-Short on purpose. The knowledge is in the skills, where it can be read and
-edited by somebody who is not reading Python, and where the planner pulls it
-just in time. A brief's job is to name the class, point at its skill, and say
-which tools are the cheap way in -- so the planner does not have to discover
-that by trying all nine.
+Short on purpose. The knowledge is in the skills, where somebody who is not reading Python can read
+and edit it, and where the planner pulls it just in time. A brief names the class, points at its
+skill, and says which tools are the cheap way in, so the planner does not have to find that out by
+trying all nine.
 """
 
 from __future__ import annotations

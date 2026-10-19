@@ -1,10 +1,10 @@
 """Widening a site until its whole lines are a quote the benchmark will accept.
 
 A citation is whole lines of the source, and the benchmark refuses one that is shorter than six
-tokens or names nothing the language does not supply: a quote of keywords and punctuation names
-no file in particular. A finding at `owner = o;` or at a bare call is therefore a finding that
-was right and scored nothing, so a site is widened to the smallest enclosing statement or
-expression whose lines pass, and never past the function it sits in.
+tokens or names nothing the language does not supply: a quote of keywords and punctuation names no
+file in particular. A finding at `owner = o;` or at a bare call is therefore a finding that was
+right and scored nothing, so a site is widened to the smallest enclosing statement or expression
+whose lines pass, and never past the function it sits in.
 """
 
 from __future__ import annotations

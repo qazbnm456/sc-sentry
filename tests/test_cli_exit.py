@@ -1,8 +1,9 @@
 """The command ends when it has reported, whatever other libraries left running at exit.
 
-Seen in the dry run: a unit's report was written in full and the process then waited on a lock
-until the host killed it at its wall clock, so the whole unit was recorded as a timeout. The
-interpreter's shutdown runs handlers other libraries register, and the fix is not to run them.
+The interpreter's shutdown runs the exit handlers other libraries register, and one of them can
+wait on a lock indefinitely. A host that stops the process at its wall clock then records the whole
+unit as a timeout although the report was written in full, so the command ends without running
+those handlers.
 """
 
 from __future__ import annotations

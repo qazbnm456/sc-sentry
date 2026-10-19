@@ -233,7 +233,7 @@ class TestTheDeadline:
         report = audit(
             SOURCE, "V.sol", [SLIPPAGE, ACCESS], mode="triage", budget=triage.Budget(seconds=2)
         )
-        # The first call always runs. After it, under 1.5 s of the 2 are left, so the second
+        # The first call always runs. After it, less than 1.5 s of the 2 is left, so the second
         # class is neither called nor reported as a failure: it keeps its static order.
         assert [name for name, _, _ in model.calls] == ["Class: access_control"]
         slippage = result_of(report.results, SLIPPAGE)

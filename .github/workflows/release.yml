@@ -1,12 +1,6 @@
 name: Release
 
-# Publishes when a GitHub Release is published, as contract-assay does. A tag
-# push alone publishes nothing. The Release is where a version's notes are
-# written, and publishing it is the one deliberate act that ships. The `pypi`
-# environment then waits for a maintainer's approval and accepts only `v*`
-# refs, so the upload, which can never be undone, takes two decisions and not
-# one. A PyPI version can never be uploaded again, even after it is deleted, so
-# everything that can fail runs before the upload.
+# Publishes when a GitHub Release is published, as contract-assay does. A tag push alone publishes nothing. The Release is where a version's notes are written, and publishing it is the one deliberate act that ships. The `pypi` environment then waits for a maintainer's approval and accepts only `v*` refs, so the upload, which can never be undone, takes two decisions and not one. A PyPI version can never be uploaded again, even after it is deleted, so everything that can fail runs before the upload.
 #
 # `workflow_dispatch` builds and gates from any ref and publishes nothing.
 on:
@@ -29,8 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The interpreters `ci.yml` tests. A release tested on fewer is a
-        # weaker claim than the commits in it made.
+        # The interpreters `ci.yml` tests. A release tested on fewer is a weaker claim than the commits in it made.
         python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
@@ -41,8 +34,7 @@ jobs:
       - name: The tag, pyproject and __version__ name one version
         id: version
         env:
-          # Through the environment, never interpolated into the script: a
-          # Release's tag name is text somebody typed.
+          # Through the environment, never interpolated into the script: a Release's tag name is text somebody typed.
           TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
@@ -64,10 +56,7 @@ jobs:
           twine check --strict dist/*
 
       - name: Install the built wheel, not the source tree
-        # `pip install -e .` proves the repository works, not the wheel; they
-        # differ exactly where a release goes wrong, such as a skill or a
-        # manifest the package data missed. The dev tools come with it, at the
-        # bounds pyproject gives them.
+        # `pip install -e .` proves that the repository works, not that the wheel does, and the two differ exactly where a release goes wrong, such as a skill or a manifest the package data missed. The dev tools come with it, at the bounds pyproject gives them.
         run: python -m pip install "$(ls dist/*.whl)[dev,contract-assay]"
 
       - name: The gate, against the installed wheel
@@ -116,9 +105,7 @@ jobs:
 
   publish:
     needs: build
-    # A published Release in this repository only. `release: published` also
-    # fires in a fork that cuts a release of its own, and the trusted-publisher
-    # binding would refuse it, but a refused attempt is still a red run there.
+    # A published Release in this repository only. `release: published` also fires in a fork that cuts a release of its own, and the trusted-publisher binding would refuse it, but a refused attempt is still a red run there.
     if: github.event_name == 'release' && github.repository == 'qazbnm456/sc-sentry'
     runs-on: ubuntu-latest
     environment:
@@ -132,14 +119,11 @@ jobs:
         with:
           name: dist
           path: dist/
-      # Pinned by commit, with the version beside it, because this is the step
-      # that uploads. Bump the SHA and the comment together.
+      # Pinned by commit, with the version beside it, because this is the step that uploads. Bump the SHA and the comment together.
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
 
   verify:
-    # Does what was just published install from PyPI and run? Informational: a
-    # PyPI version cannot be withdrawn, so a red here means the next patch
-    # release, not a rollback.
+    # Does what was just published install from PyPI and run? Informational: a PyPI version cannot be withdrawn, so a red here means the next patch release, not a rollback.
     needs: [build, publish]
     runs-on: ubuntu-latest
     steps:
@@ -153,8 +137,7 @@ jobs:
           set -uo pipefail
           python -m venv "$RUNNER_TEMP/venv"
           for attempt in $(seq 1 8); do
-            # `--no-cache-dir`, or a retry is answered from the page the
-            # too-early attempt cached.
+            # `--no-cache-dir`, or a retry is answered from the page the too-early attempt cached.
             if "$RUNNER_TEMP/venv/bin/pip" install --no-cache-dir "sc-sentry==$VERSION"; then
               "$RUNNER_TEMP/venv/bin/sc-sentry" classes
               exit 0
