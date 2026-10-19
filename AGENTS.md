@@ -15,7 +15,7 @@ $ pytest
 
 CI runs both: the harness without contract-assay, which proves it needs none, and once more with the extra, which type-checks and tests the adapter. The adapter's tests build their own corpus, so neither needs a clone of contract-assay; a real run does, for its records. A change is done when the local gate and the remote CI run are both green.
 
-A release is a tag `vX.Y.Z` on a green `main`. The version in `pyproject.toml` and `__version__` in `src/sc_sentry/__init__.py` have to match the tag first: `release.yml` checks it, runs the gate, builds, and publishes to PyPI by Trusted Publishing. A version can never be uploaded to PyPI twice, so a bad release is fixed with a new version.
+A release is a GitHub Release `vX.Y.Z`, cut from a green `main`. A tag push alone publishes nothing. The version in `pyproject.toml` and `__version__` in `src/sc_sentry/__init__.py` have to match the tag first. Publishing the Release starts `release.yml`, which checks the versions, builds, runs the gate against the installed wheel, and then waits for a maintainer to approve the `pypi` environment before it uploads by Trusted Publishing. A version can never be uploaded to PyPI twice, so a bad release is fixed with a new version. Run the workflow by hand to rehearse a release from any ref; it publishes nothing.
 
 ## Rules that are easy to break
 
