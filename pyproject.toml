@@ -50,7 +50,7 @@ packages = ["src/sc_sentry"]
 
 # The sdist holds an explicit list of paths. Hatch excludes what .gitignore names but not what .git/info/exclude names, so without the list a local working directory such as judging/ would go into the sdist.
 [tool.hatch.build.targets.sdist]
-only-include = ["src", "tests", "README.md", "LICENSE", "pyproject.toml", ".env.example"]
+only-include = ["docs", "src", "tests", "README.md", "LICENSE", "pyproject.toml", ".env.example"]
 
 [tool.ruff]
 line-length = 100
